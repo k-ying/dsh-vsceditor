@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-08-31
+
+### 新增
+
+- **多语言支持（i18n）**：web 面板、host 运行时提示、VS Code 桥扩展全面支持 简体中文 / English / Português (Brasil) / Español，新增 `language` 设置项（`auto` = 跟随浏览器语言）。感谢 @WalissonRodrigo 的贡献（PR #1）
+- README 重组为四语言版本（英文为默认），新增多语言 banner
+
+### 修复
+
+- 修复 i18n 中 host 消息参数未被替换的问题（`{cwd}` 等占位符原样显示）
+
 ## [0.3.5] - 2026-08-31
 
 ### 新增

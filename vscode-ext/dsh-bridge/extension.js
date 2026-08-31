@@ -24,6 +24,179 @@ function dbg(msg) {
   try { fs.appendFileSync('/tmp/dsh-bridge-debug.log', new Date().toISOString() + ' [pid ' + process.pid + '] ' + msg + '\n'); } catch (e) {}
 }
 
+const L10N = {
+  zh: {
+    'ext.promptWs': 'DSH 桥接：本窗口未打开工作区 {ws}',
+    'ext.openWs': '打开该工作区',
+    'ext.logWaitingTrust': '工作区未信任（受限模式），等待用户信任…',
+    'ext.promptTrust': 'DSH 桥接：当前工作区处于受限模式，信任后才会同步 DSH 的编辑。',
+    'ext.manageTrust': '管理工作区信任',
+    'diff.title': 'DSH: {base} ⟵ 修改前 | 当前 ⟶',
+    'log.wsUnset': '(未设置)',
+    'st.waitingDsh': '等待 DSH',
+    'log.wsMismatch': '工作区不匹配：DSH={dsh} 本窗口={mine}',
+    'log.noFolder': '(无文件夹)',
+    'st.wsMismatch': '工作区不匹配',
+    'st.waitingWs': '等待工作区',
+    'log.sseHandshakeFail': 'SSE 握手失败：HTTP {code}',
+    'log.sseConnected': 'SSE 已连接 {target}{suffix}',
+    'log.restrictedSuffix': '（受限模式：仅上报状态）',
+    'st.restricted': '受限模式',
+    'log.sseEnded': 'SSE 流结束（对端关闭），将重连',
+    'log.sseError': 'SSE 流错误：{err}',
+    'log.sseConnectFail': 'SSE 连接失败：{err}',
+    'sb.follow': '跟随',
+    'sb.edit': '编辑',
+    'sb.tipConnected': 'DSH Bridge 已连接（{mode}）· 点击切换跟随/重连',
+    'sb.modeFollow': '跟随模式：只读+diff',
+    'sb.modeEdit': '编辑模式：锁定 DSH 占用文件',
+    'sb.tipDisconnected': 'DSH Bridge 未连接，点击打开菜单',
+    'msg.revertFollow': 'DSH 跟随模式为只读：你的修改已回退（在 DSH 面板关闭跟随后可编辑）',
+    'msg.revertLocked': '该文件正在被 DSH 编辑：你的修改已回退',
+    'msg.reqFollowOff': '已请求关闭跟随（host 确认后生效）',
+    'msg.reqFollowOn': '已请求开启跟随（host 确认后生效）',
+    'menu.follow': '跟随模式',
+    'menu.followOnDesc': '当前：开（只读 + 自动弹 diff），点击关闭',
+    'menu.followOffDesc': '当前：关，点击开启',
+    'menu.reconnect': '重新连接 DSH',
+    'menu.connected': '已连接',
+    'menu.disconnected': '未连接',
+    'log.trustGranted': '已获得工作区信任',
+  },
+  en: {
+    'ext.promptWs': 'DSH Bridge: this window does not have workspace {ws} open',
+    'ext.openWs': 'Open this workspace',
+    'ext.logWaitingTrust': 'Workspace not trusted (restricted mode), waiting for trust…',
+    'ext.promptTrust': 'DSH Bridge: current workspace is in restricted mode; edits will sync after it is trusted.',
+    'ext.manageTrust': 'Manage Workspace Trust',
+    'diff.title': 'DSH: {base} ⟵ before | current ⟶',
+    'log.wsUnset': '(unset)',
+    'st.waitingDsh': 'Waiting for DSH',
+    'log.wsMismatch': 'Workspace mismatch: DSH={dsh} local={mine}',
+    'log.noFolder': '(no folder)',
+    'st.wsMismatch': 'Workspace mismatch',
+    'st.waitingWs': 'Waiting for workspace',
+    'log.sseHandshakeFail': 'SSE handshake failed: HTTP {code}',
+    'log.sseConnected': 'SSE connected {target}{suffix}',
+    'log.restrictedSuffix': ' (restricted mode: status reporting only)',
+    'st.restricted': 'Restricted mode',
+    'log.sseEnded': 'SSE stream ended (closed by remote), will reconnect',
+    'log.sseError': 'SSE stream error: {err}',
+    'log.sseConnectFail': 'SSE connection failed: {err}',
+    'sb.follow': 'Follow',
+    'sb.edit': 'Edit',
+    'sb.tipConnected': 'DSH Bridge connected ({mode}) · click to toggle follow/reconnect',
+    'sb.modeFollow': 'follow mode: read-only + diff',
+    'sb.modeEdit': 'edit mode: DSH-locked files stay locked',
+    'sb.tipDisconnected': 'DSH Bridge not connected, click to open menu',
+    'msg.revertFollow': 'DSH follow mode is read-only: your changes have been reverted (turn off follow mode in DSH panel to edit)',
+    'msg.revertLocked': 'This file is being edited by DSH: your changes have been reverted',
+    'msg.reqFollowOff': 'Requested follow mode off (takes effect after host confirms)',
+    'msg.reqFollowOn': 'Requested follow mode on (takes effect after host confirms)',
+    'menu.follow': 'Follow mode',
+    'menu.followOnDesc': 'Current: On (read-only + auto diff popup), click to turn off',
+    'menu.followOffDesc': 'Current: Off, click to turn on',
+    'menu.reconnect': 'Reconnect to DSH',
+    'menu.connected': 'Connected',
+    'menu.disconnected': 'Not connected',
+    'log.trustGranted': 'Workspace trust granted',
+  },
+  'pt-BR': {
+    'ext.promptWs': 'DSH Bridge: este workspace {ws} não está aberto nesta janela',
+    'ext.openWs': 'Abrir este workspace',
+    'ext.logWaitingTrust': 'Workspace não confiável (modo restrito), aguardando confiança…',
+    'ext.promptTrust': 'DSH Bridge: o workspace atual está em modo restrito; as edições serão sincronizadas após confiar nele.',
+    'ext.manageTrust': 'Gerenciar confiança do workspace',
+    'diff.title': 'DSH: {base} ⟵ antes | atual ⟶',
+    'log.wsUnset': '(não definido)',
+    'st.waitingDsh': 'Aguardando DSH',
+    'log.wsMismatch': 'Incompatibilidade de workspace: DSH={dsh} local={mine}',
+    'log.noFolder': '(sem pasta)',
+    'st.wsMismatch': 'Workspace incompatível',
+    'st.waitingWs': 'Aguardando workspace',
+    'log.sseHandshakeFail': 'Falha no handshake SSE: HTTP {code}',
+    'log.sseConnected': 'SSE conectado {target}{suffix}',
+    'log.restrictedSuffix': ' (modo restrito: somente relato de status)',
+    'st.restricted': 'Modo restrito',
+    'log.sseEnded': 'Fluxo SSE finalizado (fechado pelo remoto), reconectando',
+    'log.sseError': 'Erro no fluxo SSE: {err}',
+    'log.sseConnectFail': 'Falha na conexão SSE: {err}',
+    'sb.follow': 'Seguir',
+    'sb.edit': 'Editar',
+    'sb.tipConnected': 'DSH Bridge conectado ({mode}) · clique para alternar seguir/reconectar',
+    'sb.modeFollow': 'modo seguir: somente leitura + diff',
+    'sb.modeEdit': 'modo edição: arquivos ocupados pelo DSH ficam bloqueados',
+    'sb.tipDisconnected': 'DSH Bridge não conectado, clique para abrir o menu',
+    'msg.revertFollow': 'O modo seguir do DSH é somente leitura: suas alterações foram revertidas (desative o modo seguir no painel do DSH para editar)',
+    'msg.revertLocked': 'Este arquivo está sendo editado pelo DSH: suas alterações foram revertidas',
+    'msg.reqFollowOff': 'Solicitado desativar modo seguir (efetivado após confirmação do host)',
+    'msg.reqFollowOn': 'Solicitado ativar modo seguir (efetivado após confirmação do host)',
+    'menu.follow': 'Modo seguir',
+    'menu.followOnDesc': 'Atual: Ativo (somente leitura + diff automático), clique para desativar',
+    'menu.followOffDesc': 'Atual: Inativo, clique para ativar',
+    'menu.reconnect': 'Reconectar ao DSH',
+    'menu.connected': 'Conectado',
+    'menu.disconnected': 'Desconectado',
+    'log.trustGranted': 'Confiança do workspace concedida',
+  },
+  es: {
+    'ext.promptWs': 'DSH Bridge: este espacio de trabajo {ws} no está abierto en esta ventana',
+    'ext.openWs': 'Abrir este espacio de trabajo',
+    'ext.logWaitingTrust': 'Espacio de trabajo no confiable (modo restringido), esperando confianza…',
+    'ext.promptTrust': 'DSH Bridge: el espacio de trabajo actual está en modo restringido; las ediciones se sincronizarán tras confiar en él.',
+    'ext.manageTrust': 'Gestionar confianza del espacio de trabajo',
+    'diff.title': 'DSH: {base} ⟵ antes | actual ⟶',
+    'log.wsUnset': '(no establecido)',
+    'st.waitingDsh': 'Esperando DSH',
+    'log.wsMismatch': 'Discrepancia de workspace: DSH={dsh} local={mine}',
+    'log.noFolder': '(sin carpeta)',
+    'st.wsMismatch': 'Workspace no coincidente',
+    'st.waitingWs': 'Esperando workspace',
+    'log.sseHandshakeFail': 'Fallo de handshake SSE: HTTP {code}',
+    'log.sseConnected': 'SSE conectado {target}{suffix}',
+    'log.restrictedSuffix': ' (modo restringido: solo reporte de estado)',
+    'st.restricted': 'Modo restringido',
+    'log.sseEnded': 'Flujo SSE finalizado (cerrado por el remoto), reconectando',
+    'log.sseError': 'Error en el flujo SSE: {err}',
+    'log.sseConnectFail': 'Fallo de conexión SSE: {err}',
+    'sb.follow': 'Seguir',
+    'sb.edit': 'Editar',
+    'sb.tipConnected': 'DSH Bridge conectado ({mode}) · clic para alternar seguir/reconectar',
+    'sb.modeFollow': 'modo seguir: solo lectura + diff',
+    'sb.modeEdit': 'modo edición: los archivos ocupados por DSH quedan bloqueados',
+    'sb.tipDisconnected': 'DSH Bridge no conectado, clic para abrir el menú',
+    'msg.revertFollow': 'El modo seguir de DSH es de solo lectura: tus cambios se han revertido (desactiva el modo seguir en el panel de DSH para editar)',
+    'msg.revertLocked': 'Este archivo está siendo editado por DSH: tus cambios se han revertido',
+    'msg.reqFollowOff': 'Solicitado desactivar modo seguir (efectivo tras confirmación del host)',
+    'msg.reqFollowOn': 'Solicitado activar modo seguir (efectivo tras confirmación del host)',
+    'menu.follow': 'Modo seguir',
+    'menu.followOnDesc': 'Actual: Activo (solo lectura + diff automático), clic para desactivar',
+    'menu.followOffDesc': 'Actual: Inactivo, clic para activar',
+    'menu.reconnect': 'Reconectar a DSH',
+    'menu.connected': 'Conectado',
+    'menu.disconnected': 'No conectado',
+    'log.trustGranted': 'Confianza del espacio de trabajo concedida',
+  },
+};
+
+function extLang() {
+  const n = String((vscode.env && vscode.env.language) || 'en').toLowerCase();
+  if (n.startsWith('zh')) return 'zh';
+  if (n.startsWith('pt')) return 'pt-BR';
+  if (n.startsWith('es')) return 'es';
+  return 'en';
+}
+
+function t(key, params) {
+  const lang = extLang();
+  const d = L10N[lang] || L10N.en;
+  let s = d && d[key] !== undefined ? d[key] : (L10N.en[key] !== undefined ? L10N.en[key] : (L10N.zh[key] !== undefined ? L10N.zh[key] : key));
+  if (params) {
+    s = s.replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(params, k) ? String(params[k]) : m));
+  }
+  return s;
+}
+
 const state = {
   follow: true,
   locked: new Set(),
@@ -93,7 +266,7 @@ function maybePromptWorkspace() {
   if (!bridge.workspace || promptedFor === bridge.workspace) return;
   promptedFor = bridge.workspace;
   const ws = bridge.workspace;
-  vscode.window.showInformationMessage('DSH 桥接：本窗口未打开工作区 ' + ws, '打开该工作区').then((pick) => {
+  vscode.window.showInformationMessage(t('ext.promptWs', { ws: ws }), t('ext.openWs')).then((pick) => {
     if (pick) vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(ws), false);
   });
 }
@@ -105,8 +278,8 @@ let trustPrompted = false;
 function maybePromptTrust() {
   if (trustPrompted || vscode.workspace.isTrusted) return;
   trustPrompted = true;
-  log('工作区未信任（受限模式），等待用户信任…');
-  vscode.window.showWarningMessage('DSH 桥接：当前工作区处于受限模式，信任后才会同步 DSH 的编辑。', '管理工作区信任').then((pick) => {
+  log(t('ext.logWaitingTrust'));
+  vscode.window.showWarningMessage(t('ext.promptTrust'), t('ext.manageTrust')).then((pick) => {
     if (pick) vscode.commands.executeCommand('workbench.trust.manage');
   });
 }
@@ -192,7 +365,7 @@ async function onEdit(msg) {
     const right = vscode.Uri.file(fsPath);
     const base = fsPath.split('/').pop() || fsPath;
     dbg('calling vscode.diff, windowFocused=' + vscode.window.state.focused + ' visibleEditors=' + vscode.window.visibleTextEditors.length);
-    const diffDone = vscode.commands.executeCommand('vscode.diff', left, right, 'DSH: ' + base + ' ⟵ 修改前 | 当前 ⟶');
+    const diffDone = vscode.commands.executeCommand('vscode.diff', left, right, t('diff.title', { base: base }));
     const raced = await Promise.race([
       diffDone.then((r) => ({ ok: true, r: r })).catch((e) => ({ ok: false, e: e })),
       new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 6000)),
@@ -272,13 +445,13 @@ function connectSSE() {
   resolveBridge();
   if (bridge.mode !== lastLoggedMode) {
     lastLoggedMode = bridge.mode;
-    log('mode=' + bridge.mode + (bridge.mode === 'desktop' ? ' workspace=' + (bridge.workspace || '(未设置)') : ''));
+    log('mode=' + bridge.mode + (bridge.mode === 'desktop' ? ' workspace=' + (bridge.workspace || t('log.wsUnset')) : ''));
   }
-  if (bridge.mode === 'none') { setStatus(false, '等待 DSH'); scheduleReconnect(); return; }
+  if (bridge.mode === 'none') { setStatus(false, t('st.waitingDsh')); scheduleReconnect(); return; }
   if (!workspaceMatches()) {
     const mine = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath).join(',');
-    log('工作区不匹配：DSH=' + bridge.workspace + ' 本窗口=' + (mine || '(无文件夹)'));
-    setStatus(false, bridge.workspace ? '工作区不匹配' : '等待工作区');
+    log(t('log.wsMismatch', { dsh: bridge.workspace, mine: mine || t('log.noFolder') }));
+    setStatus(false, bridge.workspace ? t('st.wsMismatch') : t('st.waitingWs'));
     maybePromptWorkspace();
     scheduleReconnect(); // bridge.json may appear / change later
     return;
@@ -298,15 +471,15 @@ function connectSSE() {
   }, (res) => {
     if (res.statusCode !== 200) {
       setStatus(false, 'HTTP ' + res.statusCode);
-      log('SSE 握手失败：HTTP ' + res.statusCode);
+      log(t('log.sseHandshakeFail', { code: res.statusCode }));
       res.resume();
       scheduleReconnect();
       return;
     }
     state.connected = true;
     updateStatus();
-    log('SSE 已连接 ' + target + (isTrusted() ? '' : '（受限模式：仅上报状态）'));
-    if (!isTrusted()) { setStatus(true, '受限模式'); maybePromptTrust(); }
+    log(t('log.sseConnected', { target: target, suffix: isTrusted() ? '' : t('log.restrictedSuffix') }));
+    if (!isTrusted()) { setStatus(true, t('st.restricted')); maybePromptTrust(); }
     post({
       type: 'ready',
       version: EXT_VERSION,
@@ -329,13 +502,13 @@ function connectSSE() {
         }
       }
     });
-    res.on('end', () => { state.connected = false; updateStatus(); log('SSE 流结束（对端关闭），将重连'); scheduleReconnect(); });
-    res.on('error', (e) => { state.connected = false; updateStatus(); log('SSE 流错误：' + (e && e.message ? e.message : String(e))); scheduleReconnect(); });
+    res.on('end', () => { state.connected = false; updateStatus(); log(t('log.sseEnded')); scheduleReconnect(); });
+    res.on('error', (e) => { state.connected = false; updateStatus(); log(t('log.sseError', { err: (e && e.message ? e.message : String(e)) })); scheduleReconnect(); });
   });
   req.on('error', (e) => {
     state.connected = false;
     updateStatus();
-    log('SSE 连接失败：' + (e && e.message ? e.message : String(e)));
+    log(t('log.sseConnectFail', { err: (e && e.message ? e.message : String(e)) }));
     scheduleReconnect();
   });
   state.sseReq = req;
@@ -357,11 +530,11 @@ function setStatus(connected, note) {
 function updateStatus(note) {
   if (!state.statusBar) return;
   const conn = state.connected ? '$(plug) DSH' : '$(debug-disconnect) DSH';
-  const mode = state.follow ? '跟随' : '编辑';
+  const mode = state.follow ? t('sb.follow') : t('sb.edit');
   state.statusBar.text = conn + ' · ' + mode + (note ? ' · ' + note : '');
   state.statusBar.tooltip = state.connected
-    ? 'DSH Bridge 已连接（' + (state.follow ? '跟随模式：只读+diff' : '编辑模式：锁定 DSH 占用文件') + '）· 点击切换跟随/重连'
-    : 'DSH Bridge 未连接，点击打开菜单';
+    ? t('sb.tipConnected', { mode: state.follow ? t('sb.modeFollow') : t('sb.modeEdit') })
+    : t('sb.tipDisconnected');
 }
 
 // ---------- edit protection ----------
@@ -382,8 +555,7 @@ function revertDocument(doc) {
     state.reverting.delete(fsPath);
     if (ok) {
       vscode.window.setStatusBarMessage(
-        state.follow ? 'DSH 跟随模式为只读：你的修改已回退（在 DSH 面板关闭跟随后可编辑）'
-                     : '该文件正在被 DSH 编辑：你的修改已回退', 4000);
+        state.follow ? t('msg.revertFollow') : t('msg.revertLocked'), 4000);
     }
   });
 }
@@ -408,7 +580,7 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand('dsh-bridge.toggleFollow', () => {
     post({ type: 'set-follow', enabled: !state.follow });
     vscode.window.setStatusBarMessage(
-      state.follow ? '已请求关闭跟随（host 确认后生效）' : '已请求开启跟随（host 确认后生效）', 2000);
+      state.follow ? t('msg.reqFollowOff') : t('msg.reqFollowOn'), 2000);
   }));
 
   // 状态栏点击菜单：切换跟随 / 重新连接。
@@ -416,10 +588,10 @@ function activate(context) {
     const pick = await vscode.window.showQuickPick([
       {
         id: 'follow',
-        label: (state.follow ? '$(check) ' : '$(close) ') + '跟随模式',
-        description: state.follow ? '当前：开（只读 + 自动弹 diff），点击关闭' : '当前：关，点击开启',
+        label: (state.follow ? '$(check) ' : '$(close) ') + t('menu.follow'),
+        description: state.follow ? t('menu.followOnDesc') : t('menu.followOffDesc'),
       },
-      { id: 'reconnect', label: '$(debug-restart) 重新连接 DSH', description: state.connected ? '已连接' : '未连接' },
+      { id: 'reconnect', label: '$(debug-restart) ' + t('menu.reconnect'), description: state.connected ? t('menu.connected') : t('menu.disconnected') },
     ]);
     if (!pick) return;
     if (pick.id === 'follow') vscode.commands.executeCommand('dsh-bridge.toggleFollow');
@@ -451,7 +623,7 @@ function activate(context) {
   }));
   // 信任授予后重连：重发 ready（trusted:true），恢复接收编辑同步。
   context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => {
-    log('已获得工作区信任');
+    log(t('log.trustGranted'));
     trustPrompted = false;
     connectSSE();
   }));

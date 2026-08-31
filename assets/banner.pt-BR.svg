@@ -38,17 +38,17 @@
   <!-- title block -->
   <g font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
     <text x="96" y="205" font-size="84" font-weight="700" fill="#f3f8ff" letter-spacing="1">dsh-vsceditor</text>
-    <text x="99" y="256" font-size="23" fill="#9db6dd">Embedded VS Code for DeepSeek Harness</text>
-    <text x="99" y="296" font-size="21" fill="#6e86ad">Watch AI code live: follow diff · file locking · dual backend (code-server / desktop)</text>
+    <text x="99" y="256" font-size="23" fill="#9db6dd">VS Code Integrado para DeepSeek Harness</text>
+    <text x="99" y="296" font-size="21" fill="#6e86ad">Acompanhe a IA codando ao vivo: diff interativo · bloqueio de arquivos · dual backend</text>
 
     <!-- feature badges -->
     <g font-size="16" fill="#a9c3ea" text-anchor="middle">
       <rect x="99" y="338" width="150" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
       <text x="174" y="360">🔴🟢 live diff</text>
-      <rect x="263" y="338" width="132" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
-      <text x="329" y="360">🔒 file lock</text>
-      <rect x="409" y="338" width="160" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
-      <text x="489" y="360">🖥 dual backend</text>
+      <rect x="263" y="338" width="140" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
+      <text x="333" y="360">🔒 file lock</text>
+      <rect x="417" y="338" width="160" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
+      <text x="497" y="360">🖥 dual backend</text>
     </g>
   </g>
 
@@ -76,14 +76,14 @@
         <rect x="928" y="248" width="3" height="26" fill="#f85149"/>
         <text x="940" y="266" fill="#e8958f">14</text>
         <rect x="972" y="254" width="330" height="12" rx="4" fill="#a44a4a" opacity="0.85"/>
-        <text x="1420" y="266" font-size="12" fill="#f85149" text-anchor="end">− removed</text>
+        <text x="1420" y="266" font-size="12" fill="#f85149" text-anchor="end">− removido</text>
 
         <!-- added line -->
         <rect x="928" y="278" width="504" height="26" fill="#3fb950" opacity="0.12"/>
         <rect x="928" y="278" width="3" height="26" fill="#3fb950"/>
         <text x="940" y="296" fill="#7ee2a0">15</text>
         <rect x="972" y="284" width="390" height="12" rx="4" fill="#3f8f5f" opacity="0.9"/>
-        <text x="1420" y="296" font-size="12" fill="#3fb950" text-anchor="end">+ added</text>
+        <text x="1420" y="296" font-size="12" fill="#3fb950" text-anchor="end">+ adicionado</text>
 
         <text x="940" y="334" fill="#40587e">16</text>
         <rect x="972" y="322" width="220" height="12" rx="4" fill="#22395f"/>
@@ -94,7 +94,7 @@
       <!-- status pill -->
       <rect x="936" y="382" width="210" height="28" rx="14" fill="#102540" stroke="#2a4a78"/>
       <circle cx="954" cy="396" r="5" fill="#3fb950"/>
-      <text x="968" y="401" font-size="13" fill="#a9c3ea" font-family="-apple-system, 'Segoe UI', Roboto, Arial, sans-serif">DSH Bridge · Following</text>
+      <text x="968" y="401" font-size="13" fill="#a9c3ea" font-family="-apple-system, 'Segoe UI', Roboto, Arial, sans-serif">DSH Bridge · Seguindo</text>
     </g>
   </g>
 </svg>

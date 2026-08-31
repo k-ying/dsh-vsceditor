@@ -36,10 +36,10 @@
   <ellipse cx="180" cy="440" rx="300" ry="90" fill="url(#glow2)" filter="url(#soft)" opacity="0.6"/>
 
   <!-- title block -->
-  <g font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif">
+  <g font-family="-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif">
     <text x="96" y="205" font-size="84" font-weight="700" fill="#f3f8ff" letter-spacing="1">dsh-vsceditor</text>
     <text x="99" y="256" font-size="23" fill="#9db6dd">Embedded VS Code for DeepSeek Harness</text>
-    <text x="99" y="296" font-size="21" fill="#6e86ad">Watch AI code live: follow diff · file locking · dual backend (code-server / desktop)</text>
+    <text x="99" y="296" font-size="21" fill="#6e86ad">看着 AI 写代码：跟随 diff · 文件锁定 · 双后端（code-server / 本机桌面）</text>
 
     <!-- feature badges -->
     <g font-size="16" fill="#a9c3ea" text-anchor="middle">
@@ -47,8 +47,8 @@
       <text x="174" y="360">🔴🟢 live diff</text>
       <rect x="263" y="338" width="132" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
       <text x="329" y="360">🔒 file lock</text>
-      <rect x="409" y="338" width="160" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
-      <text x="489" y="360">🖥 dual backend</text>
+      <rect x="409" y="338" width="150" height="34" rx="17" fill="#12233f" stroke="#2a4268"/>
+      <text x="484" y="360">🖥 dual backend</text>
     </g>
   </g>
 
@@ -94,7 +94,7 @@
       <!-- status pill -->
       <rect x="936" y="382" width="210" height="28" rx="14" fill="#102540" stroke="#2a4a78"/>
       <circle cx="954" cy="396" r="5" fill="#3fb950"/>
-      <text x="968" y="401" font-size="13" fill="#a9c3ea" font-family="-apple-system, 'Segoe UI', Roboto, Arial, sans-serif">DSH Bridge · Following</text>
+      <text x="968" y="401" font-size="13" fill="#a9c3ea" font-family="-apple-system, 'Segoe UI', Roboto, Arial, 'PingFang SC', sans-serif">DSH Bridge · 跟随中</text>
     </g>
   </g>
 </svg>
