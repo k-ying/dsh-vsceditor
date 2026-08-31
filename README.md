@@ -2,7 +2,7 @@
 
 ![dsh-vsceditor banner](assets/banner.svg)
 
-**English** | [简体中文](README.zh.md) | [Português (Brasil)](README.pt-BR.md) | [Español](README.es.md)
+**English** | [简体中文](README.zh.md)
 
 **An embedded VS Code editor plugin for DeepSeek Harness** — embeds a full code-server (complete VS Code) inside the DSH web UI. Every time the agent writes or edits a file, the editor pops a red/green diff and jumps to the first changed line — you literally watch the AI work.
 
