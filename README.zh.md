@@ -183,7 +183,7 @@ agent 开始写某文件时该文件在编辑器里变为只读（状态栏有�
 | `port` | number | `0` | code-server 监听端口；`0` = 随机（18200–18900）；改动会自动重启编辑器 |
 | `codeServerHome` | string | `""` | 手动指定 code-server 安装目录；留空按上面的优先级自动查找 |
 | `vscodePath` | string | `""` | 手动指定本机 VS Code 路径（code CLI 或 .app/Code.exe）；留空自动探测 |
-| `language` | string | `auto` | 界面语言：`auto` = 跟随浏览器语言；或显式指定 `zh`、`en`、`pt-BR`、`es` |
+| `language` | string | `auto` | 界面语言：`auto` = 跟随 DSH 界面语言（兜底浏览器语言）；`pt-BR`/`es` 不会被自动选中（DSH 本身只有中英界面），需要时请在这里显式指定 |
 
 写入即持久化到 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节，重启后保留。也可以在 `~/.dsh/profiles/web/cordis.patch.yml` 的插件行加 `config:` 作为组合层 base（用户层覆盖 base 层）。
 
