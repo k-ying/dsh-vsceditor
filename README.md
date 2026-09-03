@@ -40,7 +40,7 @@
 │        lock → file read-only; unlock → restores            │
 └────────────────────────────────────────────────────────────┘
         ▲ iframe (client.js registers a conversation.view
-          tab "编辑器" ("Editor"), persistent on body across tab switches)
+          tab "Editor", persistent on body across tab switches)
 ```
 
 Message semantics follow ACP `session/update`: `edit {path, oldText, newText, firstLine}` is pushed by the host with computed diff stats; the extension renders it. The host mounts unscoped, so it sees tool events from all sessions (scoped events flow up the scope chain).
@@ -72,9 +72,9 @@ dsh plugin --profile web add /path/to/dsh-vsceditor
 
 ### 4.2 Install code-server (required for embedded mode)
 
-> ⚠️ **Do not skip this if you want the default embedded editor.** The plugin does not ship the code-server runtime (~100MB). Without it, embedded mode is unavailable — the Editor (编辑器) tab will report "code-server not found" and offer to switch you to **local VS Code mode** (feature-equivalent, see 5.1).
+> ⚠️ **Do not skip this if you want the default embedded editor.** The plugin does not ship the code-server runtime (~100MB). Without it, embedded mode is unavailable — the Editor tab will report "code-server not found" and offer to switch you to **local VS Code mode** (feature-equivalent, see 5.1).
 
-**Option 1: one-click install (recommended).** Open the Editor (编辑器) tab (or Settings → Plugins → 内嵌 VSCode 编辑器) and click **「⬇ 一键安装 code-server」** — a dialog shows the download URL, live progress percentage, and install/startup steps (cancellable at any time), and the editor opens automatically when done. Installs to `~/.dsh-editor`, shared by all workspaces.
+**Option 1: one-click install (recommended).** Open the Editor tab (or Settings → Plugins → Embedded VS Code editor) and click **⬇ Install code-server in one click** — a dialog shows the download URL, live progress percentage, and install/startup steps (cancellable at any time), and the editor opens automatically when done. Installs to `~/.dsh-editor`, shared by all workspaces.
 
 **Option 2: global CLI install** (equivalent; useful when the panel is unreachable):
 
@@ -173,7 +173,7 @@ When the agent starts writing a file, that file becomes read-only in the editor 
 
 ### 5.4 Settings card
 
-Settings → Plugins → Plugin Configuration → "内嵌 VSCode 编辑器" (Embedded VS Code Editor; collapsed by default, click the header to expand):
+Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" (collapsed by default, click the header to expand):
 
 | Key | Type | Default | Description |
 |---|---|---|---|
