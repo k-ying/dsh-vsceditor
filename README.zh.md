@@ -24,7 +24,8 @@
 │  host.js（host 层 cordis 插件，进程级单例）              │
 │   · 监听所有会话的 tools/pre-execute、tools/result 事件   │
 │   · 捕获 write/edit 的目标路径，读出改前/改后文本          │
-│   · 管理 code-server 子进程（spawn/重启/退出重试）         │
+│   · 经看门狗进程管理 code-server（心跳陪葬 + 孤儿收割，    │
+│     DSH 崩溃/升级后不再残留 code-server 进程）             │
 │   · 通过 webServer 暴露：                                 │
 │       /__dsh-vsceditor/state|action   （控制面，页面用）   │
 │       /__dsh-vsceditor-<rand>/events  （SSE → 扩展）      │
@@ -165,6 +166,7 @@ dsh web
 - DSH 标签页工具栏的「跟随」勾选框可随时开关；关掉后仍会记录最近改动（recent 列表），只是不主动弹窗
 - **编辑器内也能切换**：点击 VS Code 状态栏的 `DSH · 跟随/编辑` 按钮弹出菜单（切换跟随 / 重新连接），或命令面板 → `DSH Bridge: Toggle Follow Mode`；扩展会把请求发回 DSH，所有端同步生效
 - 只想看工作区内的改动：设置卡片勾选「仅跟随工作区内文件」，工作区外的写入只进 recent 列表，不弹 diff
+- **diff 是轮次级的**：一轮对话内的所有改动按文件累计成 diff 标签页；关掉 diff 标签不丢状态——再编辑该文件、从资源管理器点开它、或刷新重开编辑器，都会带原基线恢复。直到下一轮对话产生首次编辑，上一轮的 diff 才整体清场
 
 ### 5.3 文件锁定
 

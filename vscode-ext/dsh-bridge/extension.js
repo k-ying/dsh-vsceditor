@@ -335,22 +335,6 @@ function snapUri(fsPath) {
 function encodePath(p) { return '/' + p.split('/').map(encodeURIComponent).join('/'); }
 const snapshots = new SnapshotProvider();
 
-// 在全部标签组里找某文件已打开的 DSH diff 标签（左侧是我们的 dsh-snap 快照）。
-// 用于复用标签：同文件再次被编辑时不新开 diff、也不覆盖累计基线。
-function findDiffTab(fsPath) {
-  for (const group of vscode.window.tabGroups.all) {
-    for (const tab of group.tabs) {
-      const input = tab.input;
-      if (input instanceof vscode.TabInputTextDiff &&
-          input.original && input.original.scheme === 'dsh-snap' &&
-          input.modified && input.modified.fsPath === fsPath) {
-        return tab;
-      }
-    }
-  }
-  return null;
-}
-
 // ---------- host -> ext message handlers ----------
 // 去重：同一份编辑帧在 30s 窗口内只处理一次。SSE 重连、多路径投递都不应
 // 让同一个 diff 反复弹出抢走用户当前页签。
@@ -362,16 +346,49 @@ function editKeyOf(msg) {
   for (let i = 0; i < t.length; i += 97) h = (h * 31 + t.charCodeAt(i)) | 0;
   return msg.path + '|' + t.length + '|' + h;
 }
+// 打开（或聚焦）某文件的 DSH diff 标签；firstLine >= 0 时定位到首个改动行。
+// preview:false → 固定标签页：一轮改多个文件时各自的 diff 并存，不再互相
+// 顶掉（默认 preview 标签会被下一个 preview 替换）。相同的 left/right 再调
+// 一次只会聚焦已有标签而不会开重复页。
+async function openDiff(fsPath, firstLine) {
+  const left = snapUri(fsPath);
+  const right = vscode.Uri.file(fsPath);
+  const base = fsPath.split('/').pop() || fsPath;
+  dbg('calling vscode.diff, windowFocused=' + vscode.window.state.focused + ' visibleEditors=' + vscode.window.visibleTextEditors.length);
+  const diffDone = vscode.commands.executeCommand('vscode.diff', left, right, t('diff.title', { base: base }), { preview: false });
+  const raced = await Promise.race([
+    diffDone.then((r) => ({ ok: true, r: r })).catch((e) => ({ ok: false, e: e })),
+    new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 6000)),
+  ]);
+  if (raced && raced.timeout) { dbg('diff TIMEOUT after 6s (promise still pending) for ' + base); }
+  else if (raced && raced.ok) { dbg('diff opened for ' + base); }
+  else { dbg('diff REJECTED for ' + base + ': ' + (raced && raced.e && raced.e.message)); throw raced.e; }
+  diffDone.catch(() => {});
+  if (typeof firstLine === 'number' && firstLine >= 0) {
+    setTimeout(() => {
+      const ed = vscode.window.activeTextEditor;
+      if (ed) {
+        const line = Math.min(firstLine, Math.max(0, ed.document.lineCount - 1));
+        const pos = new vscode.Position(line, 0);
+        try {
+          ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+          ed.selection = new vscode.Selection(pos, pos);
+        } catch (e) {}
+      }
+    }, 450);
+  }
+}
+
 async function onEdit(msg) {
   const fsPath = msg.path;
   dbg('onEdit start, follow=' + state.follow);
-  // 累计基线：该文件已有 diff 标签开着、且快照还在时才保留首次快照（左边
-  // =DSH 动手前），右边是真实文件随磁盘自动刷新，同一个 diff 标签原地变成
-  // 整轮累计 diff；否则建立新基线。基线在用户手动关掉 diff 标签时重置
-  // （见 onDidChangeTabs）。第二个条件的必要性：内嵌模式页面刷新后扩展宿主
-  // 重建、快照 Map 清空，但 VS Code 会恢复之前固定的 diff 标签——此时左侧
-  // 会变成空白，必须用回放帧里的 oldText 重新填充。
-  if (!findDiffTab(fsPath) || !snapshots._contents.has(fsPath)) {
+  // 轮次级累计基线：快照只在「该文件本轮还没有基线」时建立（左边 = DSH 本轮
+  // 动手前），右边是真实文件随磁盘自动刷新，diff 标签原地变成本轮累计 diff。
+  // 基线不随标签关闭而重置——关掉标签后本轮再改该文件会带着原基线重开 diff；
+  // 只有 host 广播 turn（新一轮对话产生首次编辑）时才清空（见 resetTurnDiffs）。
+  // 内嵌模式页面刷新后扩展宿主重建、快照 Map 清空，但 VS Code 会恢复之前固定
+  // 的 diff 标签——此时左侧会变成空白，靠重放帧里的 oldText 重新填充。
+  if (!snapshots._contents.has(fsPath)) {
     snapshots.set(fsPath, typeof msg.oldText === 'string' ? msg.oldText : '');
   }
   state.lastKnown.set(fsPath, typeof msg.newText === 'string' ? msg.newText : state.lastKnown.get(fsPath));
@@ -385,33 +402,7 @@ async function onEdit(msg) {
   lastEditAt = Date.now();
   if (!state.follow) { post({ type: 'ack', kind: 'edit', path: fsPath, follow: false }); return; }
   try {
-    const left = snapUri(fsPath);
-    const right = vscode.Uri.file(fsPath);
-    const base = fsPath.split('/').pop() || fsPath;
-    dbg('calling vscode.diff, windowFocused=' + vscode.window.state.focused + ' visibleEditors=' + vscode.window.visibleTextEditors.length);
-    // preview:false → 固定标签页：一轮改多个文件时各自的 diff 并存，不再互相
-    // 顶掉（默认 preview 标签会被下一个 preview 替换）。相同的 left/right 再调
-    // 一次只会聚焦已有标签而不会开重复页。
-    const diffDone = vscode.commands.executeCommand('vscode.diff', left, right, t('diff.title', { base: base }), { preview: false });
-    const raced = await Promise.race([
-      diffDone.then((r) => ({ ok: true, r: r })).catch((e) => ({ ok: false, e: e })),
-      new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 6000)),
-    ]);
-    if (raced && raced.timeout) { dbg('diff TIMEOUT after 6s (promise still pending) for ' + base); }
-    else if (raced && raced.ok) { dbg('diff opened for ' + base); }
-    else { dbg('diff REJECTED for ' + base + ': ' + (raced && raced.e && raced.e.message)); throw raced.e; }
-    diffDone.catch(() => {});
-    setTimeout(() => {
-      const ed = vscode.window.activeTextEditor;
-      if (ed && typeof msg.firstLine === 'number' && msg.firstLine >= 0) {
-        const line = Math.min(msg.firstLine, Math.max(0, ed.document.lineCount - 1));
-        const pos = new vscode.Position(line, 0);
-        try {
-          ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-          ed.selection = new vscode.Selection(pos, pos);
-        } catch (e) {}
-      }
-    }, 450);
+    await openDiff(fsPath, typeof msg.firstLine === 'number' ? msg.firstLine : -1);
     post({ type: 'ack', kind: 'edit', path: fsPath, follow: true });
   } catch (e) {
     dbg('diff FAILED for ' + fsPath + ': ' + (e && e.message) + ' ' + (e && e.stack));
@@ -436,10 +427,27 @@ async function onReveal(msg) {
   }
 }
 
+// 新一轮对话开始产生编辑（host 广播 turn）：关掉本轮之前所有 DSH diff 标签、
+// 清空全部基线快照，新一轮只显示新一轮的累计变化。清空去重键，让新一轮第一
+// 帧即使内容巧合相同也能正常弹出。
+function resetTurnDiffs() {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (input instanceof vscode.TabInputTextDiff &&
+          input.original && input.original.scheme === 'dsh-snap') {
+        try { vscode.window.tabGroups.close(tab); } catch (e) {}
+      }
+    }
+  }
+  snapshots._contents.clear();
+  lastEditKey = '';
+}
+
 function handleMessage(msg) {
   if (!msg || typeof msg.type !== 'string') return;
-  // 受限模式下只维护状态，不执行任何编辑/跳转指令。
-  if (!isTrusted() && (msg.type === 'edit' || msg.type === 'reveal')) return;
+  // 受限模式下只维护状态，不执行任何编辑/跳转/清场指令。
+  if (!isTrusted() && (msg.type === 'edit' || msg.type === 'reveal' || msg.type === 'turn')) return;
   dbg('recv: ' + msg.type + (msg.path ? ' ' + msg.path : ''));
   switch (msg.type) {
     case 'hello':
@@ -459,6 +467,9 @@ function handleMessage(msg) {
       break;
     case 'edit':
       onEdit(msg);
+      break;
+    case 'turn':
+      resetTurnDiffs();
       break;
     case 'reveal':
       onReveal(msg);
@@ -630,16 +641,24 @@ function activate(context) {
     if (doc.uri.scheme === 'file') state.lastKnown.set(doc.uri.fsPath, doc.getText());
   }));
 
-  // diff 标签被手动关闭 → 删掉对应快照：下次编辑该文件时以当时内容重新建立
-  // 基线，同时避免快照在内存里越积越多。
-  context.subscriptions.push(vscode.window.tabGroups.onDidChangeTabs((e) => {
-    for (const tab of e.closed) {
-      const input = tab.input;
-      if (input instanceof vscode.TabInputTextDiff &&
-          input.original && input.original.scheme === 'dsh-snap') {
-        snapshots._contents.delete(decodeURIComponent(input.original.query || ''));
-      }
-    }
+  // 基线生命周期是轮次级的：关掉 diff 标签不再删快照（本轮再改该文件会带原
+  // 基线重开标签）；整轮基线由 host 的 turn 广播统一清（见 resetTurnDiffs）。
+  // 点开带有本轮 diff 基线的文件（资源管理器 / 快速打开）→ 自动切到该文件的
+  // 本轮 diff 标签，而不是停留在普通编辑器视图：本轮 diff 在下一轮对话产生
+  // 新编辑前始终是「活的」。仅跟随模式；激活的本身就是 diff 标签时跳过，
+  // 防止 openDiff 自己触发的事件造成递归。
+  let autoDiffTimer = null;
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor((ed) => {
+    if (!state.follow || !ed || ed.document.uri.scheme !== 'file') return;
+    const fsPath = ed.document.uri.fsPath;
+    if (!snapshots._contents.has(fsPath)) return;
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    if (tab && tab.input instanceof vscode.TabInputTextDiff) return;
+    if (autoDiffTimer) clearTimeout(autoDiffTimer);
+    autoDiffTimer = setTimeout(() => {
+      autoDiffTimer = null;
+      if (state.follow && snapshots._contents.has(fsPath)) openDiff(fsPath, -1).catch(() => {});
+    }, 150);
   }));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
     if (doc.uri.scheme === 'file') state.lastKnown.set(doc.uri.fsPath, doc.getText());

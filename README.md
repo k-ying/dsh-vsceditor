@@ -25,7 +25,9 @@
 │   · listens to tools/pre-execute & tools/result events     │
 │     of every session                                       │
 │   · captures write/edit target paths, reads before/after   │
-│   · manages the code-server child (spawn/restart/retry)    │
+│   · manages the code-server child via a watchdog process   │
+│     (heartbeat-suicide + orphan reaping: no leftover       │
+│     code-server after DSH crashes/upgrades)                │
 │   · exposes via webServer:                                 │
 │       /__dsh-vsceditor/state|action   (control plane)      │
 │       /__dsh-vsceditor-<rand>/events  (SSE → extension)    │
@@ -166,6 +168,7 @@ On by default. After each agent `write`/`edit` lands:
 - You can uncheck **Follow** in the editor tab's toolbar anytime; recent changes are still recorded (recent list), it just stops popping views
 - **Toggleable from inside the editor too**: click the `DSH · follow/edit` status bar button in VS Code for a menu (toggle follow / reconnect), or Command Palette → `DSH Bridge: Toggle Follow Mode`; the extension sends the request back to DSH and all sides sync
 - Only want edits inside the workspace? Check **Follow workspace files only** in the settings card — writes outside the workspace go to the recent list without popping diffs
+- **Diffs are turn-scoped**: all edits within one conversation turn accumulate into per-file diff tabs. Closing a diff tab loses nothing — editing that file again, clicking it in the explorer, or reopening the editor brings the diff back with its original baseline. Only when the *next* conversation turn makes its first edit are the previous turn's diff tabs cleared
 
 ### 5.3 File locking
 
