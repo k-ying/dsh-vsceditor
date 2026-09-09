@@ -8,9 +8,9 @@
 
 ## 1. Features
 
-- **Two backends: embedded / local** — embedded code-server by default; or switch to **local VS Code** and move follow/diff/locking into your own desktop editor
+- **Three mutually exclusive backends: embedded / local / off** — embedded code-server by default; switch to **local VS Code** to move follow/diff/locking into your own desktop editor; or switch to **Off** to disconnect everything (the watchdog kills the whole code-server tree, the local extension unlinks, and the resident iframe's renderer memory is released). The power button in the editor toolbar operates the same setting and doubles as a one-click way back on
 - **Real VS Code, not a toy editor** — the embedded one is code-server 4.x (full VS Code kernel): extensions, themes, keybindings and the Git panel all work
-- **Follow mode, turn-scoped diffs** — when the agent calls `write`/`edit`, the editor opens a red/green diff view of that file and scrolls to the first changed line; DSH also renders its own read-only diff tab, so you can watch either side. Diffs accumulate per file for a whole conversation turn, survive tab closes and editor reloads, and are cleared only when the next turn starts editing (see 5.2)
+- **Follow mode, turn-scoped diffs** — when the agent calls `write`/`edit`, the editor opens a red/green diff view of that file and scrolls to the first changed line; DSH also renders its own read-only diff tab, so you can watch either side. Diffs accumulate per file for a whole conversation turn, survive tab closes and editor reloads, and are cleared only when the next turn starts editing (see 5.3)
 - **File locking** — while the agent is writing a file it becomes read-only in the editor (prevents you and the AI overwriting each other); it unlocks automatically when the write finishes
 - **No orphaned processes** — code-server runs under a watchdog that heartbeats the DSH host and kills the whole editor process tree when the host dies (crash / force-quit / Studio upgrade); a reaper also sweeps historical leftovers at startup and every 30 min. Your own desktop VS Code and self-installed code-server are never touched
 - **Workspace follows the session** — one DSH process runs one code-server; when the active session's workspace changes, the editor switches to that directory (restarting code-server when needed)
@@ -135,7 +135,7 @@ Note: this path is not widely verified; it only guarantees local 127.0.0.1 use. 
 dsh web
 ```
 
-An Editor tab appears in the top bar; click it and wait a few seconds for code-server to come up. The status dot next to the tab label: gray = loading, green = extension connected, yellow = waiting for the extension, red = not running / code-server not installed / bridge not mounted.
+An Editor tab appears in the top bar; click it and wait a few seconds for code-server to come up. The status dot next to the tab label: gray = loading or backend switched **Off**, green = extension connected, yellow = waiting for the extension, red = not running / code-server not installed / bridge not mounted.
 
 ## 5. Usage
 
@@ -161,7 +161,18 @@ Desktop VS Code enables [Restricted Mode](https://code.visualstudio.com/docs/edi
 
 Recommendation: your DSH workspaces are your own directories, so just trust them; if all sessions live under one parent (e.g. `~/Documents/AI`), trusting the parent folder settles it once and for all.
 
-### 5.2 Follow mode
+### 5.2 Off mode (disconnect the editor backend)
+
+Switch **Editor backend** to **Off** in the settings card, or click the **power button** in the editor toolbar (⏻, right of restart — in embedded mode it says "Shut down code-server", in local mode "Disconnect"). Both operate the same setting:
+
+- Embedded mode: the watchdog stops and SIGTERMs the **whole code-server process tree** — no orphans; the resident iframe is torn down, releasing its renderer memory
+- Local mode: `bridge.json` is removed so the desktop extension disconnects on its next poll
+- While off, **nothing can relaunch the editor**: auto-start, crash-retry timers, restart timers, install-finish launches and workspace-switch relaunches are all gated behind a single guard in `startServer`, and a deliberate shutdown is never misbooked as a crash (no error banner, no retry budget consumed)
+- `autoStart` only controls DSH boot behavior: an Off state with `autoStart=true` still launches nothing; turning the backend back on from Off always starts immediately
+- The state persists in `~/.dsh/settings.yaml` and survives DSH restarts
+- The Off page offers one-click ways back: **Start embedded code-server** or **Use local VS Code →** (opens the connection wizard); the toolbar power button becomes **Start code-server**
+
+### 5.3 Follow mode
 
 On by default. After each agent `write`/`edit` lands:
 
@@ -171,20 +182,20 @@ On by default. After each agent `write`/`edit` lands:
 - Only want edits inside the workspace? Check **Follow workspace files only** in the settings card — writes outside the workspace go to the recent list without popping diffs
 - **Diffs are turn-scoped**: all edits within one conversation turn accumulate into per-file diff tabs. Closing a diff tab loses nothing — editing that file again, clicking it in the explorer, or reopening the editor brings the diff back with its original baseline. Only when the *next* conversation turn makes its first edit are the previous turn's diff tabs cleared
 
-### 5.3 File locking
+### 5.4 File locking
 
 When the agent starts writing a file, that file becomes read-only in the editor (status bar hint) and unlocks when the write completes. This is an anti-conflict hint, not a security boundary.
 
-### 5.4 Settings card
+### 5.5 Settings card
 
 Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" (collapsed by default, click the header to expand):
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `editorBackend` | string | `embedded` | Editor backend: `embedded` = embedded code-server; `local` = local desktop VS Code |
+| `editorBackend` | string | `embedded` | Editor backend (mutually exclusive): `embedded` = embedded code-server; `local` = local desktop VS Code; `off` = disconnect everything (see 5.2). The toolbar power button toggles the same key |
 | `follow` | boolean | `true` | Follow DSH edits: pop the red/green diff and jump to the changed line |
 | `followWorkspaceOnly` | boolean | `false` | Follow workspace files only: out-of-workspace changes are recorded but pop no diff |
-| `autoStart` | boolean | `true` | Launch code-server automatically when DSH starts; when off, start it manually from the Editor tab |
+| `autoStart` | boolean | `true` | Launch code-server automatically when DSH starts; when off, start it manually from the Editor tab. Only governs DSH boot: nothing launches while the backend is Off, but switching back from Off always starts immediately |
 | `port` | number | `0` | code-server listen port; `0` = random (18200–18900); changing it restarts the editor |
 | `codeServerHome` | string | `""` | Manually specify the code-server install directory; empty = auto-lookup in the order above |
 | `vscodePath` | string | `""` | Manually specify the local VS Code path (code CLI or .app/Code.exe); empty = auto-detect |
@@ -192,7 +203,7 @@ Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" (col
 
 Writes persist to the `dsh-vsceditor` section of `~/.dsh/settings.yaml` and survive restarts. You can also add `config:` to the plugin row in `~/.dsh/profiles/web/cordis.patch.yml` as a composition-level base (user layer overrides base layer).
 
-### 5.5 Shortcuts / commands
+### 5.6 Shortcuts / commands
 
 In the VS Code command palette (`Cmd/Ctrl+Shift+P`):
 
