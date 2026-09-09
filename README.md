@@ -10,8 +10,9 @@
 
 - **Two backends: embedded / local** — embedded code-server by default; or switch to **local VS Code** and move follow/diff/locking into your own desktop editor
 - **Real VS Code, not a toy editor** — the embedded one is code-server 4.x (full VS Code kernel): extensions, themes, keybindings and the Git panel all work
-- **Follow mode** — when the agent calls `write`/`edit`, the editor opens a red/green diff view of that file and scrolls to the first changed line; DSH also renders its own read-only diff tab, so you can watch either side
+- **Follow mode, turn-scoped diffs** — when the agent calls `write`/`edit`, the editor opens a red/green diff view of that file and scrolls to the first changed line; DSH also renders its own read-only diff tab, so you can watch either side. Diffs accumulate per file for a whole conversation turn, survive tab closes and editor reloads, and are cleared only when the next turn starts editing (see 5.2)
 - **File locking** — while the agent is writing a file it becomes read-only in the editor (prevents you and the AI overwriting each other); it unlocks automatically when the write finishes
+- **No orphaned processes** — code-server runs under a watchdog that heartbeats the DSH host and kills the whole editor process tree when the host dies (crash / force-quit / Studio upgrade); a reaper also sweeps historical leftovers at startup and every 30 min. Your own desktop VS Code and self-installed code-server are never touched
 - **Workspace follows the session** — one DSH process runs one code-server; when the active session's workspace changes, the editor switches to that directory (restarting code-server when needed)
 - **Persistent iframe** — the editor page stays attached to `<body>`; switching tabs only hides/shows it instead of starting a new VS Code session every click
 - **Settings page integration** — a collapsible card under Settings → Plugins → Plugin Configuration: follow toggle, auto-start, port, code-server home. Everything applies live and persists (`~/.dsh/settings.yaml`)
@@ -216,7 +217,10 @@ The extension host only starts while a code-server window is open. Click into th
 Change the port in the settings card; the editor restarts onto the new port after saving.
 
 **Leftover code-server processes**
-DSH does not force-kill detached children on exit. Clean up manually: `pkill -f 'code-server.*--auth none'`.
+Since 0.5.0 this should not happen: code-server runs under a supervisor (`lib/cs-supervisor.js`) that kills the whole editor process tree when the DSH host dies, and a reaper sweeps orphaned leftovers (PPID=1, matched against this plugin's own install signature) at startup, again 30s later, and every 30 min. If you still see leftovers, please file an issue. Manual cleanup: `pkill -f 'code-server.*--auth none'`.
+
+**The editor restarted by itself / error mentions `cs-supervisor: host unreachable`**
+The watchdog lost its heartbeat to the DSH host for ~60s (e.g. the host event loop was stalled) and shut code-server down as a precaution. The host notices the exit and relaunches the editor within ~2s, so it heals on its own; if it repeats frequently, file an issue.
 
 **Settings → Plugins → Plugin Configuration renders blank**
 A pitfall from this plugin's 0.1.x era: a settings schema missing `toJSON` takes down the whole tab. Fixed in 0.2.0; if it still happens, file an issue with the `dsh-vsceditor` section of `~/.dsh/settings.yaml` attached.
@@ -243,6 +247,7 @@ dsh-vsceditor/
 ├── package.json                  # dsh.bundle.patch / dsh.client declarations
 ├── lib/
 │   ├── host.js                   # host half: process mgmt, event bridge, settings namespace
+│   ├── cs-supervisor.js          # watchdog: spawns code-server, heartbeat-suicides with the tree when DSH dies
 │   └── client.js                 # client half: tab iframe, settings card (hand-written bundle)
 ├── scripts/
 │   ├── install-code-server.sh    # code-server download/install script (macOS/Linux)
@@ -257,7 +262,7 @@ dsh-vsceditor/
 
 ## 10. Development
 
-After changing `lib/host.js`, restart DSH; after `lib/client.js`, just refresh the page (the bundle route reads from disk per request). Verify the profile still assembles the composition:
+After changing `lib/host.js` or `lib/cs-supervisor.js`, restart DSH; after `lib/client.js`, just refresh the page (the bundle route reads from disk per request); after `vscode-ext/dsh-bridge/extension.js`, reopen the editor tab (each open spawns a fresh extension host that loads the current file). Verify the profile still assembles the composition:
 
 ```sh
 dsh --profile web --dump-config

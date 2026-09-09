@@ -10,8 +10,9 @@
 
 - **双后端：内嵌 / 本机** —— 默认内嵌 code-server；也可切换为「本机 VS Code」，跟随、diff、锁定全部搬进你自己的桌面编辑器
 - **完整 VSCode，不是玩具编辑器** —— 内嵌的是 code-server 4.x（完整 VSCode 内核），扩展、主题、快捷键、Git 面板全部可用
-- **跟随模式（follow）** —— agent 调用 `write`/`edit` 工具改文件时，编辑器自动打开该文件的红绿 diff 视图并滚动到首个改动行；DSH 侧还同时内置一个只读 diff 标签页，两边都能看
+- **跟随模式（follow），diff 轮次级累计** —— agent 调用 `write`/`edit` 工具改文件时，编辑器自动打开该文件的红绿 diff 视图并滚动到首个改动行；DSH 侧还同时内置一个只读 diff 标签页，两边都能看。diff 按对话轮次累计：整轮改动跨标签页并存，关标签、刷新编辑器都不丢，下一轮对话开始编辑时才清场（见 5.2）
 - **文件锁定** —— agent 正在写某个文件期间，编辑器里该文件被锁定（防止你和 AI 同时改一个文件互相覆盖），写完自动解锁
+- **不留孤儿进程** —— code-server 由看门狗进程托管：心跳发现 DSH 宿主死亡（崩溃/强杀/升级重启）后杀掉整棵编辑器进程树陪葬；启动时和每 30 分钟还会巡检收割历史残留。你自己的桌面 VS Code 和自装的 code-server 绝不会被误伤
 - **工作区自动跟随会话** —— 一个 DSH 进程只跑一个 code-server；当前活跃会话的工作区变化时，编辑器自动切换到对应目录（必要时自动重启 code-server）
 - **iframe 常驻不重建** —— 编辑器页面固定在 `<body>` 上、切换标签页只是隐藏/显示，不会每次点进去都新开一个 VSCode 会话
 - **设置页集成** —— 「设置 → 插件 → 插件配置」里有本插件的折叠卡片：跟随开关、自动启动、端口、code-server 目录，全部即时生效并持久化（`~/.dsh/settings.yaml`）
@@ -214,7 +215,10 @@ VS Code 受限模式拦截了编辑同步。在 VS Code 里信任该工作区（
 设置卡片改端口，保存后编辑器自动重启到新端口。
 
 **code-server 进程残留**
-DSH 退出时不会强杀已脱离的子进程。手动清理：`pkill -f 'code-server.*--auth none'`。
+0.5.0 起不应再出现：code-server 由看门狗（`lib/cs-supervisor.js`）托管，宿主死亡即陪葬；收割器在启动时、30 秒后、每 30 分钟巡检回收 PPID=1 的历史孤儿（只匹配本插件自己的安装签名）。若仍看到残留请提 issue。手动清理：`pkill -f 'code-server.*--auth none'`。
+
+**编辑器自己重启了 / 报错里有 `cs-supervisor: host unreachable`**
+看门狗约 60 秒连不上 DSH 宿主（比如宿主事件循环被长时间卡死），按保护逻辑关掉了 code-server。宿主发现子进程退出后会在约 2 秒内自动拉起编辑器，属于自愈；若频繁出现请提 issue。
 
 **设置 → 插件 → 插件配置 整页空白**
 这是本插件 0.1.x 时代踩过的坑：settings schema 缺 `toJSON` 会把整页拖挂。0.2.0 已修复；若仍出现请提 issue 并附 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节。
@@ -241,6 +245,7 @@ dsh-vsceditor/
 ├── package.json                  # dsh.bundle.patch / dsh.client 声明
 ├── lib/
 │   ├── host.js                   # host 半：进程管理、事件桥、settings 命名空间
+│   ├── cs-supervisor.js          # 看门狗：拉起 code-server，DSH 死亡时心跳判死并带整棵进程树陪葬
 │   └── client.js                 # client 半：标签页 iframe、设置卡片（手写 bundle 格式）
 ├── scripts/
 │   ├── install-code-server.sh    # code-server 下载安装脚本（macOS/Linux）
@@ -255,7 +260,7 @@ dsh-vsceditor/
 
 ## 10. 开发
 
-改 `lib/host.js` 后需要重启 DSH 生效；改 `lib/client.js` 只需刷新页面（bundle 路由按请求读盘）。校验组合是否仍能被 profile 正确装配：
+改 `lib/host.js` / `lib/cs-supervisor.js` 后需要重启 DSH 生效；改 `lib/client.js` 只需刷新页面（bundle 路由按请求读盘）；改 `vscode-ext/dsh-bridge/extension.js` 后重开编辑器标签页即可（每次打开都会拉起新的扩展宿主，加载磁盘上的最新文件）。校验组合是否仍能被 profile 正确装配：
 
 ```sh
 dsh --profile web --dump-config
