@@ -18,6 +18,12 @@
 - **Settings page integration** — a collapsible card under Settings → Plugins → Plugin Configuration: follow toggle, auto-start, port, code-server home. Everything applies live and persists (`~/.dsh/settings.yaml`)
 - **Zero dependencies** — both host and client halves are hand-written vanilla JS with no npm packages; the settings schema is a hand-rolled schemastery-compatible shape, no `@deepseek-ai/schemastery` needed
 
+## Security
+
+- Control-plane routes (`/state`, `/action`) are fenced: loopback/IP-literal Host (DNS-rebinding domains rejected), `sec-fetch-site: cross-site` rejected, Origin must match Host when present, and state-changing POSTs require an Origin header (browser always sends one; local non-browser scripts do not). `set-config` accepts only known config keys.
+- The embedded code-server binds to `127.0.0.1` with `--auth none` on a random port in the **full** 10000-65000 range. On a **single-user** dev machine this matches DSH's own local HTTP threat model; on **multi-user** machines another local user could still reach it via a loopback port scan — prefer the `local` backend there.
+- `~/.dsh-editor/bridge.json` (bridge token) is written with `0600` permissions.
+
 ## 2. How it works
 
 ```

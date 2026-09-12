@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - unreleased
+
+### 安全
+
+- **控制面路由加信任围栏**（修复 HIGH）：`/state` 与 `/action` 此前没有任何校验 —— 任意网页可跨站 POST `set-config` 写入攻击者选定的 `vscodePath`，再 `detect-vscode` 让宿主执行该二进制（CSRF → 命令执行）。现在：Host 必须是 loopback 或 IP 字面量（DNS-rebinding 的域名 Host 进不来）、`sec-fetch-site: cross-site` 拒绝、Origin 存在时必须匹配 Host、**写操作 POST 必须带 Origin**（浏览器必带；本地非浏览器脚本不带 → 拒绝）。插件自身客户端（同源 fetch）不受影响
+- **`set-config` 键白名单**（纵深防御）：控制路由只允许写 `CONFIG_DEFAULTS` 中已知的配置键，多余字段直接丢弃
+- **code-server 随机端口扩到全范围** 10000-65000（原固定窄段 18200-18900，本地端口扫描数秒即可定位 `--auth none` 实例）
+- **bridge.json 改 0600 权限**：该文件含 SSE token，可订阅携带文件全文的 edit 事件流，此前为默认 0644
+- 残余风险（如实记录）：内嵌 code-server 仍为 `--auth none`（loopback 绑定），多用户机器上本机其它用户仍可能经端口扫描访问；单用户开发机与 DSH 本身的本地 HTTP 面同威胁级
+- 新增首个测试 `test/control-trust-smoke.mjs`（围栏矩阵 + 真实路由 403/200 集成）
+
 ## [0.5.1] - 2026-09-09
 
 ### 新增
