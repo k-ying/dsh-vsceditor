@@ -470,12 +470,19 @@ function handleMessage(msg) {
       if (typeof msg.debug === 'boolean') DEBUG = msg.debug;
       updateStatus();
       break;
-    case 'debug':
+    case 'debug': {
       // Runtime tracing toggle: no DSH restart, and it reaches desktop VS Code
       // windows too (we do not spawn those, so no env var can).
-      DEBUG = !!msg.enabled;
-      dbg('debug tracing ' + (DEBUG ? 'enabled' : 'disabled'));
+      // dbg() is itself a no-op while tracing is off, so the "disabled"
+      // transition has to be written BEFORE the flag drops; assigning first
+      // only ever works for enabling.
+      const wasOn = DEBUG;
+      const on = !!msg.enabled;
+      if (wasOn) dbg('debug tracing ' + (on ? 'enabled' : 'disabled'));
+      DEBUG = on;
+      if (!wasOn && on) dbg('debug tracing enabled');
       break;
+    }
     case 'follow':
       state.follow = !!msg.enabled;
       updateStatus();
