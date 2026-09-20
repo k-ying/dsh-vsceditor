@@ -2,6 +2,21 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+> 未发版：代码已就位，尚未升版本号、未打 tag、未发布 npm。
+
+### 可观测性
+
+- **扩展 ack 不再被丢弃**：`/state` 新增 `lastAck`（`kind`/`path`/`follow`/`opened`/`timeout`/`dedup`/`error`/`at`）。此前 host 的 RPC 分发只处理 `ready`/`set-follow`/`log`，扩展对每个 edit 帧回报的 ack 被直接扔掉，于是「diff 到底弹没弹」在面板侧毫无凭据。现在 `openDiff` 会把结果如实带回：6 秒超时既不抛错也不等于已弹出，ack 里用 `opened`/`timeout` 区分；扩展明确抛错时面板给出红字提示并指向 `~/.dsh-editor/bridge-ext.log`
+- **写操作失败不再静默**：客户端 `postAction` 此前是 `.catch(() => null)`，被围栏拒绝时面板毫无反应，只是 2.5 秒后轮询把控件弹回原值，用户会以为「点了没生效」。现在失败会在编辑器标签页与设置卡片里显示一行红字，HTTP 403 直接点名控制面围栏并提示检查 `trustedHosts`；业务失败（`{ok:false}`）仍把结果交给调用方，调用方行为完全兼容
+- **新增 `bridgeDebug` 设置**：让扩展侧追踪可现场开启。开关经 SSE 的 `debug` 帧即时下发（扩展侧 `DEBUG` 由 `const` 改为运行时可改），**无需重启 DSH 或 code-server**；对不是本插件拉起的桌面 VS Code 窗口同样生效（环境变量到不了那里）。开启后追踪写入 `/tmp/dsh-bridge-debug.log`
+- 测试：新增 ack 归一化矩阵 + 配置不变量（三处键清单必须一致：`CONFIG_DEFAULTS`、`configSchema.dict`、以及 `normalizeConfig` 返回的字面量对象——控制路由的写白名单遍历第一处，而漏在第三处会让该键被**静默丢弃、设置永不生效**；本次新增 `bridgeDebug` 时真的踩了这个坑，靠这条不变量抓出来并修掉）；冒烟测试现在报告检查条数（53 条）
+
+### 发版前必做
+
+- 本版改动了 `vscode-ext/dsh-bridge/extension.js`。按 README「版本号规范」（插件与扩展保持 major.minor 一致），**发版时扩展版本必须从 `0.5.0` 提到 `0.5.x`**——否则 host 会认为已安装扩展与内置扩展同版本、不重新拷贝，用户拿不到新扩展代码
+
 ## [0.5.2] - 2026-09-20
 
 ### 安全

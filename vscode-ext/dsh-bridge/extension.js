@@ -16,9 +16,12 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-// Debug log is opt-in: set DSH_BRIDGE_DEBUG to a non-empty value to append
-// traces to /tmp/dsh-bridge-debug.log.
-const DEBUG = !!process.env.DSH_BRIDGE_DEBUG;
+// Debug log is opt-in: set DSH_BRIDGE_DEBUG to a non-empty value, or flip the
+// plugin's `bridgeDebug` setting (the host pushes it over SSE as a `debug`
+// frame), to append traces to /tmp/dsh-bridge-debug.log. Runtime-toggleable on
+// purpose: diagnosing a diff that never opened must not require restarting DSH
+// (and desktop VS Code windows are not spawned by us, so no env can reach them).
+let DEBUG = !!process.env.DSH_BRIDGE_DEBUG;
 function dbg(msg) {
   if (!DEBUG) return;
   try { fs.appendFileSync('/tmp/dsh-bridge-debug.log', new Date().toISOString() + ' [pid ' + process.pid + '] ' + msg + '\n'); } catch (e) {}
@@ -360,8 +363,13 @@ async function openDiff(fsPath, firstLine) {
     diffDone.then((r) => ({ ok: true, r: r })).catch((e) => ({ ok: false, e: e })),
     new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 6000)),
   ]);
-  if (raced && raced.timeout) { dbg('diff TIMEOUT after 6s (promise still pending) for ' + base); }
-  else if (raced && raced.ok) { dbg('diff opened for ' + base); }
+  // The outcome is reported back to the host in the ack: a 6s timeout does not
+  // throw (the promise may still resolve), but it is NOT the same as "opened",
+  // and without this distinction the host cannot tell whether the diff ever
+  // reached the screen.
+  let outcome;
+  if (raced && raced.timeout) { dbg('diff TIMEOUT after 6s (promise still pending) for ' + base); outcome = { opened: false, timeout: true }; }
+  else if (raced && raced.ok) { dbg('diff opened for ' + base); outcome = { opened: true, timeout: false }; }
   else { dbg('diff REJECTED for ' + base + ': ' + (raced && raced.e && raced.e.message)); throw raced.e; }
   diffDone.catch(() => {});
   if (typeof firstLine === 'number' && firstLine >= 0) {
@@ -377,6 +385,7 @@ async function openDiff(fsPath, firstLine) {
       }
     }, 450);
   }
+  return outcome;
 }
 
 async function onEdit(msg) {
@@ -402,8 +411,11 @@ async function onEdit(msg) {
   lastEditAt = Date.now();
   if (!state.follow) { post({ type: 'ack', kind: 'edit', path: fsPath, follow: false }); return; }
   try {
-    await openDiff(fsPath, typeof msg.firstLine === 'number' ? msg.firstLine : -1);
-    post({ type: 'ack', kind: 'edit', path: fsPath, follow: true });
+    const outcome = await openDiff(fsPath, typeof msg.firstLine === 'number' ? msg.firstLine : -1);
+    post({
+      type: 'ack', kind: 'edit', path: fsPath, follow: true,
+      opened: !!(outcome && outcome.opened), timeout: !!(outcome && outcome.timeout),
+    });
   } catch (e) {
     dbg('diff FAILED for ' + fsPath + ': ' + (e && e.message) + ' ' + (e && e.stack));
     log('diff failed for ' + fsPath + ': ' + (e && e.message));
@@ -453,7 +465,16 @@ function handleMessage(msg) {
     case 'hello':
       state.follow = !!msg.follow;
       state.locked = new Set(Array.isArray(msg.locked) ? msg.locked : []);
+      // Only override when the host actually states it, so an env-enabled trace
+      // is not silently switched off by an older host that omits the field.
+      if (typeof msg.debug === 'boolean') DEBUG = msg.debug;
       updateStatus();
+      break;
+    case 'debug':
+      // Runtime tracing toggle: no DSH restart, and it reaches desktop VS Code
+      // windows too (we do not spawn those, so no env var can).
+      DEBUG = !!msg.enabled;
+      dbg('debug tracing ' + (DEBUG ? 'enabled' : 'disabled'));
       break;
     case 'follow':
       state.follow = !!msg.enabled;

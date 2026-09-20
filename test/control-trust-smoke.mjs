@@ -1,6 +1,8 @@
 // control-trust-smoke.mjs — verifies the /state + /action trust fence:
 //   unit: isTrustedControlRequest matrix (rebinding / cross-site / mutation /
 //         socket origin / declared trusted hosts) + parseTrustedHosts
+//   unit: ackRecord normalization (the panel's only evidence a diff opened)
+//   unit: config invariants (schema keys == CONFIG_DEFAULTS keys)
 //   integration: real HTTP requests against apply()'s registered routes
 // (autoStart:false so no code-server is spawned)
 
@@ -10,7 +12,8 @@ import { createRequire } from "node:module";
 const plugin = createRequire(import.meta.url)("../lib/host.js");
 
 const failed = [];
-function check(cond, label) { if (!cond) failed.push(label); }
+let checks = 0;
+function check(cond, label) { checks++; if (!cond) failed.push(label); }
 
 // ── unit: gate matrix ──
 const gate = plugin.isTrustedControlRequest;
@@ -65,6 +68,50 @@ for (const bad of ["*", "*.example.com", "https://dsh.example.com", "dsh.example
   try { parse(bad); } catch (e) { threw = true; }
   check(threw, `trustedHosts rejects ${JSON.stringify(bad)}`);
 }
+
+// ── unit: ack normalization ──
+// The extension acks every edit frame; before this the host dropped the ack,
+// so "did the diff actually open?" had no answer on the panel side.
+const ack = plugin.ackRecord;
+const ackOk = ack({ kind: "edit", path: "/w/a.md", follow: true, opened: true, timeout: false }, 1234);
+check(ackOk.kind === "edit" && ackOk.path === "/w/a.md" && ackOk.opened === true && ackOk.timeout === false,
+  "ack: a diff that opened is recorded as opened");
+check(ackOk.at === 1234, "ack: injected clock is used (deterministic)");
+const ackTimeout = ack({ kind: "edit", path: "/w/a.md", opened: false, timeout: true });
+check(ackTimeout.opened === false && ackTimeout.timeout === true,
+  "ack: 6s timeout recorded as NOT opened (acked must not read as shown)");
+const ackDedup = ack({ kind: "edit", path: "/w/a.md", follow: true, dedup: true });
+check(ackDedup.dedup === true && ackDedup.opened === false, "ack: dedup frame recorded, not counted as opened");
+check(ack({ kind: "edit", path: "/w/a.md", follow: false }).follow === false, "ack: follow-off frame recorded as follow=false");
+const ackErr = ack({ kind: "edit-error", path: "/w/a.md", error: "boom" });
+check(ackErr.kind === "edit-error" && ackErr.error === "boom", "ack: edit-error keeps the message");
+const ackEmpty = ack({});
+check(ackEmpty.opened === false && ackEmpty.timeout === false && ackEmpty.follow === true,
+  "ack: empty payload defaults to a benign, non-opened record");
+check(ack(null).kind === "" && ack(undefined).path === "", "ack: null/undefined tolerated");
+check(typeof ack({}).at === "number", "ack: timestamp defaults to now");
+
+// ── unit: config invariants ──
+// The control route's write whitelist iterates CONFIG_DEFAULTS, so a key that
+// exists only in the schema is silently unwritable (and a key only in the
+// defaults never reaches the settings card).
+const schemaKeys = Object.keys(plugin.configSchema.dict).sort();
+const defaultKeys = Object.keys(plugin.CONFIG_DEFAULTS).sort();
+check(JSON.stringify(schemaKeys) === JSON.stringify(defaultKeys),
+  `schema keys == CONFIG_DEFAULTS keys (schema=[${schemaKeys.join(",")}] defaults=[${defaultKeys.join(",")}])`);
+// There are three key lists (CONFIG_DEFAULTS, configSchema.dict, and the
+// literal object normalizeConfig returns). A key missing from the third is
+// silently dropped from every read path: the setting saves and never takes
+// effect. Assert normalization emits exactly the declared key set.
+const normalizedKeys = Object.keys(plugin.configSchema({})).sort();
+check(JSON.stringify(normalizedKeys) === JSON.stringify(defaultKeys),
+  `normalizeConfig emits every declared key (normalized=[${normalizedKeys.join(",")}] defaults=[${defaultKeys.join(",")}])`);
+check(plugin.CONFIG_DEFAULTS.bridgeDebug === false, "bridgeDebug defaults to off");
+check(plugin.configSchema({}).bridgeDebug === false, "bridgeDebug falls back to the default");
+check(plugin.configSchema({ bridgeDebug: true }).bridgeDebug === true, "bridgeDebug round-trips through the schema");
+let bridgeDebugRejected = false;
+try { plugin.configSchema({ bridgeDebug: "yes" }); } catch (e) { bridgeDebugRejected = true; }
+check(bridgeDebugRejected, "bridgeDebug rejects a non-boolean");
 
 // ── integration: drive the real routes ──
 const routes = [];
@@ -128,4 +175,4 @@ if (failed.length > 0) {
   console.log("CONTROL TRUST SMOKE FAILED");
   process.exit(1);
 }
-console.log("CONTROL TRUST SMOKE PASSED");
+console.log(`CONTROL TRUST SMOKE PASSED (${checks} checks)`);
