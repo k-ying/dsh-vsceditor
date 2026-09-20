@@ -18,12 +18,6 @@
 - **Settings page integration** — a collapsible card under Settings → Plugins → Plugin Configuration: follow toggle, auto-start, port, code-server home. Everything applies live and persists (`~/.dsh/settings.yaml`)
 - **Zero dependencies** — both host and client halves are hand-written vanilla JS with no npm packages; the settings schema is a hand-rolled schemastery-compatible shape, no `@deepseek-ai/schemastery` needed
 
-## Security
-
-- Control-plane routes (`/state`, `/action`) are fenced: loopback/IP-literal Host (DNS-rebinding domains rejected), `sec-fetch-site: cross-site` rejected, Origin must match Host when present, and state-changing POSTs require an Origin header (browser always sends one; local non-browser scripts do not). `set-config` accepts only known config keys.
-- The embedded code-server binds to `127.0.0.1` with `--auth none` on a random port in the **full** 10000-65000 range. On a **single-user** dev machine this matches DSH's own local HTTP threat model; on **multi-user** machines another local user could still reach it via a loopback port scan — prefer the `local` backend there.
-- `~/.dsh-editor/bridge.json` (bridge token) is written with `0600` permissions.
-
 ## 2. How it works
 
 ```
@@ -202,10 +196,11 @@ Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" (col
 | `follow` | boolean | `true` | Follow DSH edits: pop the red/green diff and jump to the changed line |
 | `followWorkspaceOnly` | boolean | `false` | Follow workspace files only: out-of-workspace changes are recorded but pop no diff |
 | `autoStart` | boolean | `true` | Launch code-server automatically when DSH starts; when off, start it manually from the Editor tab. Only governs DSH boot: nothing launches while the backend is Off, but switching back from Off always starts immediately |
-| `port` | number | `0` | code-server listen port; `0` = random (18200–18900); changing it restarts the editor |
+| `port` | number | `0` | code-server listen port; `0` = random (10000–65000); changing it restarts the editor |
 | `codeServerHome` | string | `""` | Manually specify the code-server install directory; empty = auto-lookup in the order above |
 | `vscodePath` | string | `""` | Manually specify the local VS Code path (code CLI or .app/Code.exe); empty = auto-detect |
 | `language` | string | `auto` | UI language: `auto` = follow the DSH UI language (falls back to browser language); `pt-BR`/`es` are never auto-detected because DSH itself only ships zh/en — pick them explicitly here |
+| `trustedHosts` | string | `""` | Comma separated bare authorities (`host` or `host:port`) allowed to reach the control routes in addition to loopback. Needed when you reach DSH through a reverse proxy or custom domain; empty = loopback only. See 8 |
 
 Writes persist to the `dsh-vsceditor` section of `~/.dsh/settings.yaml` and survive restarts. You can also add `config:` to the plugin row in `~/.dsh/profiles/web/cordis.patch.yml` as a composition-level base (user layer overrides base layer).
 
@@ -233,6 +228,9 @@ The extension host only starts while a code-server window is open. Click into th
 **Port taken / want a different port**
 Change the port in the settings card; the editor restarts onto the new port after saving.
 
+**Editor tab says the bridge is unmounted / settings card buttons do nothing (403)**
+You are reaching DSH through a host the control fence does not trust — a reverse proxy, a custom domain, Tailscale MagicDNS, ngrok, and so on. Declare that hostname in **Trusted hosts** (Settings → Plugin config) or in the `dsh-vsceditor` section of `~/.dsh/settings.yaml`. While it is fenced the settings card cannot save either, so edit the file (or the plugin row's `config:`) in that case. Loopback access (`http://127.0.0.1:<port>`), `localhost`, and the machine's own LAN address keep working with no configuration — see 8.
+
 **Leftover code-server processes**
 Since 0.5.0 this should not happen: code-server runs under a supervisor (`lib/cs-supervisor.js`) that kills the whole editor process tree when the DSH host dies, and a reaper sweeps orphaned leftovers (PPID=1, matched against this plugin's own install signature) at startup, again 30s later, and every 30 min. If you still see leftovers, please file an issue. Manual cleanup: `pkill -f 'code-server.*--auth none'`.
 
@@ -252,8 +250,11 @@ Optionally remove runtime data: `~/.dsh-editor` (including per-workspace runtime
 
 ## 8. Security notes
 
-- code-server launches with `--auth none` but **listens on 127.0.0.1 only**, never exposed to the LAN; do not rebind it to 0.0.0.0
-- Bridge endpoints (SSE/RPC) carry a per-boot random token handed to the extension via environment variables
+- **Control-plane routes are fenced** (`/state`, `/action`): the Host must be loopback, the address the request actually arrived on, or a host you declared in **Trusted hosts**; `sec-fetch-site: cross-site` is rejected; `Origin` must match `Host` when present; and state-changing POSTs must carry an `Origin` at all (browsers always send one, blind local scripts do not). `set-config` additionally accepts only known config keys
+- **A non-loopback socket may only speak for a declared trusted host.** Outside a browser, `Host` and `Origin` are both forgeable — the socket address is the only honest signal — so without that rule a local process (or a LAN peer on a LAN-bound DSH) could simply claim `Host: 127.0.0.1` and drive the control plane. Same-machine access through your machine's own LAN address or hostname still works, because the loopback socket proves the client is local
+- **Reaching DSH through a reverse proxy / custom domain / Tailscale MagicDNS / ngrok?** Declare that hostname in **Trusted hosts** (Settings → Plugin config), in the plugin row's `config:`, or directly in the `dsh-vsceditor` section of `~/.dsh/settings.yaml`. Until it is declared the control routes answer 403 and the Editor tab reports the bridge as unmounted — and the settings card cannot save in that state either, so edit the file. The plugin also inherits DSH's own `trustedHosts` (the `connection` service), so a host already declared for the deployment does not need declaring twice
+- code-server launches with `--auth none` but **listens on 127.0.0.1 only**, on a random port in the full 10000–65000 range; never rebind it to 0.0.0.0. On a **single-user** dev machine this matches DSH's own local HTTP threat model; on a **multi-user** machine another local user can still reach the port via a loopback scan — prefer the `local` backend there
+- Bridge endpoints (SSE/RPC) carry a per-boot random token handed to the extension via environment variables; `~/.dsh-editor/bridge.json` holds that token and is written with `0600` permissions
 - The plugin collects and uploads nothing; code-server starts with `--disable-telemetry --disable-update-check`
 
 ## 9. Directory layout
@@ -283,6 +284,12 @@ After changing `lib/host.js` or `lib/cs-supervisor.js`, restart DSH; after `lib/
 
 ```sh
 dsh --profile web --dump-config
+```
+
+Run the test suite (no dependencies — straight from source; also runs in CI):
+
+```sh
+npm test
 ```
 
 ### Versioning rule

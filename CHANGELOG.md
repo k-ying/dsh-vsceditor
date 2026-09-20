@@ -2,16 +2,32 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.5.2] - unreleased
+## [0.5.2] - 2026-09-20
 
 ### 安全
 
-- **控制面路由加信任围栏**（修复 HIGH）：`/state` 与 `/action` 此前没有任何校验 —— 任意网页可跨站 POST `set-config` 写入攻击者选定的 `vscodePath`，再 `detect-vscode` 让宿主执行该二进制（CSRF → 命令执行）。现在：Host 必须是 loopback 或 IP 字面量（DNS-rebinding 的域名 Host 进不来）、`sec-fetch-site: cross-site` 拒绝、Origin 存在时必须匹配 Host、**写操作 POST 必须带 Origin**（浏览器必带；本地非浏览器脚本不带 → 拒绝）。插件自身客户端（同源 fetch）不受影响
+- **控制面路由加信任围栏**（修复 HIGH，感谢 @sheecegardezi 的 PR #3）：`/state` 与 `/action` 此前没有任何校验 —— 任意网页可跨站 POST `set-config` 写入攻击者选定的 `vscodePath`，再 `detect-vscode` 让宿主执行该二进制（CSRF → 命令执行）。该路径真实可达：`readBody` 不看 content-type，用默认 `text/plain` 的跨站 fetch 属简单请求、不触发预检，POST 会被直接投递执行；DNS rebinding 下还可直接读取 `/state`（泄露工作区与最近文件路径）。现在：Host 必须是回环 / 请求实际到达的本机地址 / 已声明的信任主机、`sec-fetch-site: cross-site` 拒绝、Origin 存在时必须匹配 Host、**写操作 POST 必须带 Origin**（浏览器必带；本地非浏览器脚本不带 → 拒绝）。插件自身客户端（同源 fetch）不受影响
+- **非回环 socket 只能代表已声明的信任主机**：浏览器之外 Host 与 Origin 都可以伪造，socket 地址是唯一可信信号。没有这条规则，本机任意进程（或 DSH 绑到局域网时的任意局域网主机）只要声称 `Host: 127.0.0.1` 即可绕过围栏驱动控制面；同机经本机局域网地址/主机名访问仍然放行（回环 socket 已证明客户端在本机）
+- **新增 `trustedHosts` 设置**：逗号分隔的裸授权（`host` 或 `host:port`），与 DSH 核心同语义（带端口精确匹配，不带端口匹配该主机名任意端口），供反向代理 / 自定义域名 / Tailscale MagicDNS / ngrok 等场景声明信任主机；同时自动并集 DSH 部署层 `connection.trustedHosts`，部署层已声明过的不必重复声明。通配符、协议、路径一律拒绝
 - **`set-config` 键白名单**（纵深防御）：控制路由只允许写 `CONFIG_DEFAULTS` 中已知的配置键，多余字段直接丢弃
 - **code-server 随机端口扩到全范围** 10000-65000（原固定窄段 18200-18900，本地端口扫描数秒即可定位 `--auth none` 实例）
 - **bridge.json 改 0600 权限**：该文件含 SSE token，可订阅携带文件全文的 edit 事件流，此前为默认 0644
 - 残余风险（如实记录）：内嵌 code-server 仍为 `--auth none`（loopback 绑定），多用户机器上本机其它用户仍可能经端口扫描访问；单用户开发机与 DSH 本身的本地 HTTP 面同威胁级
-- 新增首个测试 `test/control-trust-smoke.mjs`（围栏矩阵 + 真实路由 403/200 集成）
+
+### 修复
+
+- IPv6 主机名误判：`new URL('http://[::ffff:127.0.0.1]:3080')` 会把 hostname 规范成带方括号的 `[::ffff:7f00:1]`，原先的 IPv6 正则匹配不到，导致非回环 IPv6 访问被误判 403。现在统一按地址规范化判定（含 IPv4-mapped 的 `::ffff:1.2.3.4` 与十六进制对两种形式）
+- 端口范围文案同步：`lib/host.js` 的 4 语言 `cfg.port` 描述、客户端 `settings.portHint`、两个 README 的设置表原先仍写 18200–18900，与实际范围不符
+
+### 文档
+
+- README 安全内容并入既有的「安全说明 / Security notes」小节（原先被插成无编号的 `## Security`，打乱了 1/2/3 的章节编号），并同步 `README.zh.md`（本仓库坚持中英双语同步）
+- 新增排障条目：经反向代理 / 自定义域名访问时控制接口返回 403、且设置卡片自身也存不了的处置方式（改 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节或插件行 `config:`）
+
+### 测试
+
+- 扩测围栏矩阵：socket 来源校验（远端伪造回环 Host 必须被拒、远端 + 已声明信任主机放行）、信任主机端口精确/任意端口语义、IPv4-mapped IPv6、`trustedHosts` 解析（通配符/协议/路径拒绝、去重、数组形式）
+- 新增 GitHub Actions 工作流（`.github/workflows/test.yml`）在 push / PR 上跑 `npm test`
 
 ## [0.5.1] - 2026-09-09
 

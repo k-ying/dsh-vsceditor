@@ -194,10 +194,11 @@ agent 开始写某文件时该文件在编辑器里变为只读（状态栏有�
 | `follow` | boolean | `true` | 跟随 DSH 编辑：改文件时自动弹出红绿 diff 并定位改动行 |
 | `followWorkspaceOnly` | boolean | `false` | 仅跟随工作区内文件：开启后工作区外的改动只记录、不弹 diff |
 | `autoStart` | boolean | `true` | DSH 启动后自动拉起 code-server；关闭后需在「编辑器」标签页手动启动。只管 DSH 启动时：后端为「关闭」时不拉起，但从关闭切回时必定立即启动 |
-| `port` | number | `0` | code-server 监听端口；`0` = 随机（18200–18900）；改动会自动重启编辑器 |
+| `port` | number | `0` | code-server 监听端口；`0` = 随机（10000–65000）；改动会自动重启编辑器 |
 | `codeServerHome` | string | `""` | 手动指定 code-server 安装目录；留空按上面的优先级自动查找 |
 | `vscodePath` | string | `""` | 手动指定本机 VS Code 路径（code CLI 或 .app/Code.exe）；留空自动探测 |
 | `language` | string | `auto` | 界面语言：`auto` = 跟随 DSH 界面语言（兜底浏览器语言）；`pt-BR`/`es` 不会被自动选中（DSH 本身只有中英界面），需要时请在这里显式指定 |
+| `trustedHosts` | string | `""` | 信任的主机（逗号分隔的裸 host 或 host:port）：除回环外允许访问控制接口的主机名。经反向代理/自定义域名访问 DSH 时必须声明；留空 = 仅回环。见第 8 节 |
 
 写入即持久化到 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节，重启后保留。也可以在 `~/.dsh/profiles/web/cordis.patch.yml` 的插件行加 `config:` 作为组合层 base（用户层覆盖 base 层）。
 
@@ -225,6 +226,9 @@ VS Code 受限模式拦截了编辑同步。在 VS Code 里信任该工作区（
 **端口被占用/想换端口**
 设置卡片改端口，保存后编辑器自动重启到新端口。
 
+**编辑器标签页显示「桥接未挂载」/ 设置卡片按钮点了没反应（403）**
+说明你访问 DSH 用的主机不在控制接口的信任范围内——反向代理、自定义域名、Tailscale MagicDNS、ngrok 等。请把该主机名声明到**信任的主机**（设置 → 插件配置），或 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节。被围栏挡住时设置卡片本身也存不了，所以这种情况请直接改文件（或插件行的 `config:`）。回环访问（`http://127.0.0.1:<端口>`）、`localhost`、以及本机自己的局域网地址无需任何配置即可用——详见第 8 节。
+
 **code-server 进程残留**
 0.5.0 起不应再出现：code-server 由看门狗（`lib/cs-supervisor.js`）托管，宿主死亡即陪葬；收割器在启动时、30 秒后、每 30 分钟巡检回收 PPID=1 的历史孤儿（只匹配本插件自己的安装签名）。若仍看到残留请提 issue。手动清理：`pkill -f 'code-server.*--auth none'`。
 
@@ -244,8 +248,11 @@ dsh plugin --profile web remove dsh-vsceditor
 
 ## 8. 安全说明
 
-- code-server 以 `--auth none` 启动，但**只监听 127.0.0.1**，不暴露到局域网；请勿改绑到 0.0.0.0
-- 桥接端点（SSE/RPC）带每次启动随机生成的 token，扩展通过环境变量拿到
+- **控制接口有信任围栏**（`/state`、`/action`）：Host 必须是回环、请求实际到达的本机地址、或你在**信任的主机**里声明过的主机；`sec-fetch-site: cross-site` 拒绝；带 `Origin` 时必须与 `Host` 一致；写操作 POST 必须带 `Origin`（浏览器必带，本地盲脚本不带）。`set-config` 另外只接受已知配置键
+- **非回环 socket 只能代表已声明的信任主机**：浏览器之外 `Host` 和 `Origin` 都可以伪造，socket 地址是唯一可信信号——没有这条规则，本机任意进程（或 DSH 绑到局域网时的任意局域网主机）只要声称 `Host: 127.0.0.1` 就能驱动控制面。同机通过本机局域网地址/主机名访问仍然放行，因为回环 socket 已经证明客户端就在本机
+- **经反向代理 / 自定义域名 / Tailscale MagicDNS / ngrok 访问 DSH？** 请把该主机名声明到**信任的主机**（设置 → 插件配置）、插件行的 `config:`，或直接写进 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节。未声明前控制接口返回 403、编辑器标签页显示桥接未挂载——且此时设置卡片本身也存不了，只能改文件。插件同时会继承 DSH 部署层自己的 `trustedHosts`（`connection` 服务），部署层已声明过的主机不必重复声明
+- code-server 以 `--auth none` 启动，但**只监听 127.0.0.1**，随机端口覆盖完整的 10000–65000 段；请勿改绑到 0.0.0.0。**单用户**开发机上这与 DSH 自身的本地 HTTP 面威胁级相当；**多用户**机器上本机其它用户仍可通过回环端口扫描访问，建议改用 `local` 后端
+- 桥接端点（SSE/RPC）带每次启动随机生成的 token，扩展通过环境变量拿到；`~/.dsh-editor/bridge.json` 保存该 token，权限为 `0600`
 - 插件不收集、不上传任何数据；code-server 启动参数带 `--disable-telemetry --disable-update-check`
 
 ## 9. 目录结构
@@ -275,6 +282,12 @@ dsh-vsceditor/
 
 ```sh
 dsh --profile web --dump-config
+```
+
+跑测试（零依赖，直接跑源码；CI 也会跑）：
+
+```sh
+npm test
 ```
 
 ### 版本号规范
