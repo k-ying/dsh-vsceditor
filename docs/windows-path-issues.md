@@ -26,7 +26,7 @@ Windows 与 POSIX 的区别（盘符大小写不敏感、反斜杠分隔符）�
 
 ## 模拟实验覆盖了什么
 
-`test/windows-sim.mjs`（47 项）**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，
+`test/windows-sim.mjs`（53 项）**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，
 用报告里的路径驱动 `handleMessage()`。断言层次：
 
 - 路径语义（`sameFsPath` / `resolveEditPath` / `canonicalizeUnder` / `baseName` / `encodePath`）
@@ -48,6 +48,9 @@ Windows 与 POSIX 的区别（盘符大小写不敏感、反斜杠分隔符）�
 - Windows 文件系统的大小写不敏感是否如假设
 
 ## Windows 验证清单
+
+> 可操作的分步手册（部署、判定标准、失败取证、回滚）见 [windows-verification.md](windows-verification.md)；
+> 本节只保留最小清单。
 
 ### 0. 准备
 
