@@ -275,6 +275,7 @@ dsh-vsceditor/
 └── vscode-ext/
     └── dsh-bridge/               # bridge extension injected via --extensions-dir
         ├── package.json
+        ├── paths.js              # Windows-safe path handling (compare / resolve / split), platform-injectable for tests
         └── extension.js
 ```
 
@@ -294,9 +295,13 @@ Run the test suite (no dependencies — straight from source; also runs in CI):
 npm test
 ```
 
+Two cases: `test/control-trust-smoke.mjs` (control-route fence, ack normalization, config invariants) and `test/windows-sim.mjs` (Windows desktop-mode path behaviour). The latter **forces win32 semantics, stubs `vscode` and loads the unmodified real `extension.js`**, so the Windows reports reproduce on macOS/Linux too; its limits and the on-device checklist live in [`docs/windows-path-issues.md`](docs/windows-path-issues.md).
+
 ### Versioning rule
 
 The plugin (root `package.json`) and the bridge extension (`vscode-ext/dsh-bridge/package.json`) keep **major.minor in sync** — e.g. plugin `0.3.x` pairs with extension `0.3.x`; patch digits may drift independently. The host compares the installed extension version against the bundled one (`vscode-ext/dsh-bridge/package.json`'s `version`) and re-copies to `~/.vscode/extensions/` with a Reload Window prompt when they differ, so upgrading the plugin never needs a manual extension reinstall.
+
+Note that this re-copy **only fires when the version changes**: to try a local edit under `vscode-ext/dsh-bridge/` in desktop VS Code you must bump the extension `version` first (or delete `~/.vscode/extensions/dsh.dsh-bridge` and trigger an install), otherwise you keep running the old extension.
 
 ## License
 

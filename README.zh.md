@@ -273,6 +273,7 @@ dsh-vsceditor/
 └── vscode-ext/
     └── dsh-bridge/               # 随 --extensions-dir 注入 code-server 的桥接扩展
         ├── package.json
+        ├── paths.js              # Windows 安全的路径处理（比较 / 解析 / 切分），平台可注入以便测试
         └── extension.js
 ```
 
@@ -280,7 +281,7 @@ dsh-vsceditor/
 
 ## 10. 开发
 
-改 `lib/host.js` / `lib/cs-supervisor.js` 后需要重启 DSH 生效；改 `lib/client.js` 只需刷新页面（bundle 路由按请求读盘）；改 `vscode-ext/dsh-bridge/extension.js` 后重开编辑器标签页即可（每次打开都会拉起新的扩展宿主，加载磁盘上的最新文件）。校验组合是否仍能被 profile 正确装配：
+改 `lib/host.js` / `lib/cs-supervisor.js` 后需要重启 DSH 生效；改 `lib/client.js` 只需刷新页面（bundle 路由按请求读盘）；改 `vscode-ext/dsh-bridge/extension.js` / `paths.js` 后重开编辑器标签页即可（每次打开都会拉起新的扩展宿主，加载磁盘上的最新文件）。校验组合是否仍能被 profile 正确装配：
 
 ```sh
 dsh --profile web --dump-config
@@ -292,9 +293,13 @@ dsh --profile web --dump-config
 npm test
 ```
 
+两个用例：`test/control-trust-smoke.mjs`（控制面围栏 + ack + 配置不变量）、`test/windows-sim.mjs`（Windows 桌面模式的路径行为）。后者**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，因此在 macOS/Linux 上也能复现 Windows 报告；边界与真机验证清单位于 [`docs/windows-path-issues.md`](docs/windows-path-issues.md)。
+
 ### 版本号规范
 
 插件（根 `package.json`）与桥扩展（`vscode-ext/dsh-bridge/package.json`）的版本号保持 **major.minor 一致**——例如插件 `0.3.x` 配套扩展 `0.3.x`；两者的 patch 位可独立递增。host 端会把扩展版本与插件内置版本（`vscode-ext/dsh-bridge/package.json` 的 `version`）比对，不一致时自动重新拷贝到 `~/.vscode/extensions/` 并提示 Reload Window，所以升级插件后无需手动重装扩展。
+
+注意这条**只在版本变化时**才触发重拷：本地开发改了 `vscode-ext/dsh-bridge/` 想在桌面 VS Code 里试，必须先把扩展 `version` 提一档（或手动删掉 `~/.vscode/extensions/dsh.dsh-bridge` 再触发安装），否则拿到的还是旧扩展。
 
 ## License
 

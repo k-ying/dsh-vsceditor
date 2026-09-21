@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "install:editor": "sh scripts/install-code-server.sh",
-    "test": "node test/control-trust-smoke.mjs"
+    "test": "node test/control-trust-smoke.mjs && node test/windows-sim.mjs"
   },
   "engines": {
     "node": ">=18"
