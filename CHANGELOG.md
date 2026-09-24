@@ -2,9 +2,7 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
-
-> 未发版：代码已就位，尚未升版本号、未打 tag、未发布 npm。
+## [0.5.3] - 2026-09-25
 
 ### 修复（Windows 桌面模式的路径处理，#4 / #5 / #6）
 
@@ -35,9 +33,9 @@
 - **修 `bridgeDebug` 关闭时的确认信息写不出来**：`dbg()` 自身在追踪关闭时直接 return，而 `case 'debug'` 原先先赋值 `DEBUG = !!msg.enabled` 再调 `dbg(...)`，于是「开启」能落盘、「关闭」永远被自己吞掉。现在改为在标志落下**之前**写关闭那一行（开启仍走赋值后写）。功能上开关两个方向本来就生效，这条只影响确认信息，属于上一版引入的顺序问题
 - 测试：新增 ack 归一化矩阵 + 配置不变量（三处键清单必须一致：`CONFIG_DEFAULTS`、`configSchema.dict`、以及 `normalizeConfig` 返回的字面量对象——控制路由的写白名单遍历第一处，而漏在第三处会让该键被**静默丢弃、设置永不生效**；本次新增 `bridgeDebug` 时真的踩了这个坑，靠这条不变量抓出来并修掉）；冒烟测试现在报告检查条数（53 条）
 
-### 发版前必做
+### 升级须知
 
-- 本版改动了 `vscode-ext/dsh-bridge/`（`extension.js` 与**新增的 `paths.js`**）。按 README「版本号规范」（插件与扩展保持 major.minor 一致），**发版时扩展版本必须从 `0.5.0` 提到 `0.5.x`**——否则 host 会认为已安装扩展与内置扩展同版本、不重新拷贝，用户拿不到新扩展代码。`paths.js` 无需额外处理：`installDesktopExtension()` 是整目录 `cpSync`，`package.json` 的 `files` 也已包含整个 `vscode-ext/dsh-bridge`
+- **扩展版本 0.5.0 → 0.5.3**：本版改动了 `vscode-ext/dsh-bridge/`（`extension.js` 与**新增的 `paths.js`**）。按 README「版本号规范」（插件与扩展保持 major.minor 一致），扩展版本必须提档 —— 否则 host 会认为已安装扩展与内置扩展同版本、**不重新拷贝**，用户拿不到新扩展代码。现在 host 检测到版本不一致会自动整目录重拷到 `~/.vscode/extensions/dsh.dsh-bridge` 并提示 Reload Window（`installDesktopExtension()` 是整目录 `cpSync`，`paths.js` 无需额外处理）
 - `test/` 不在 `files` 中，所以三个测试文件不随 npm 包发布（`npm test` 只在仓库内跑）
 
 ## [0.5.2] - 2026-09-20

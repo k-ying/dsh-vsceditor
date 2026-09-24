@@ -1,4 +1,4 @@
-# dsh-vsceditor · `fix/windows-paths` — Windows 部署与验证手册
+# dsh-vsceditor — Windows 部署与验证手册（#4 / #5 / #6）
 
 **读者**：这台 Mac 上的你 + Windows 工作区里的那个 dsh agent。
 **目的**：把 `#4 / #5 / #6` 三个 Windows 桌面模式的路径 bug 的修复，在一台真实 Windows 上跑一遍并留下证据。
@@ -20,23 +20,25 @@ macOS 上能跑的自动化已经全绿（`npm test` → 106 项），但下面�
 
 ### 现在的代码状态
 
-| 项 | 值 |
+下表是**验证当时**（2026-09-23）的现场快照。这些修复现已合并进 `main` 并随 **v0.5.3** 发布 —— 现在要复现本手册的流程，直接 checkout `main`（或安装 `dsh-vsceditor@0.5.3`）即可，不必再用 `fix/windows-paths` 分支：
+
+| 项 | 值（验证当时） |
 |---|---|
 | 仓库 | `k-ying/dsh-vsceditor`（你的主仓，issues 都在这） |
-| 分支 | `fix/windows-paths` |
+| 分支 | `fix/windows-paths`（已合并进 `main`；分支保留但不必再用） |
 | 代码提交 | `ccd51ef` *fix(windows): 修复 Windows 桌面模式的路径处理（#4 / #5 / #6）* |
 | 分支头 | 其上加了一个**纯文档**提交（*docs: 新增 Windows 部署与验证手册…*），代码一行没动 |
-| `main` | `a2387ff`，**未合并**分支，主线保持已验证状态 |
-| 插件版本 | `0.5.2`（**未改动**） |
-| 扩展版本 | `0.5.0`（**未改动**） |
-| 发版 | 无 tag、无 npm 发布 |
+| `main` | 当时是 `a2387ff`，分支**未合并**；现在 `main` 已含全部修复（合并提交 `5149694`） |
+| 插件版本 | 当时 `0.5.2`；发布版本为 **`0.5.3`** |
+| 扩展版本 | 当时 `0.5.0`；发布版本为 **`0.5.3`**（提档才会触发重拷，见 2.4） |
+| 发版 | ✅ **v0.5.3 / 2026-09-25**（本手册验证的就是它的内容） |
 | 真机验证 | ✅ Windows 10 Pro 22H2 · VS Code 1.138.0 · 2026-09-23（`#4/#5/#6` 三条全部通过） |
 
 > 📄 真机验证的完整报告（含实测数据、两个新发现的缺陷、本文档的偏差清单）：
 > [`docs/windows-verification-report.md`](windows-verification-report.md)。
 > 下面标注「实测」的段落就是那次验证回填的结果。
 
-> ⚠️ 版本号没动，正是第 2.4 节那个坑的来源，请务必读完再动手。
+> ⚠️ 验证当时插件与扩展的版本号都没动，正是第 2.4 节那个坑的来源，请务必读完再动手。
 
 ---
 
@@ -56,14 +58,17 @@ macOS 上能跑的自动化已经全绿（`npm test` → 106 项），但下面�
 
 ## 2. 部署
 
-### 2.1 拿到分支代码
+### 2.1 拿到代码
+
+> **v0.5.3 已发布**：下面的 `fix/windows-paths` 是当时的验证分支，现已合并进 `main`。
+> 要复现本手册的验证流程，把 `fix/windows-paths` 换成 `main`（或直接装 `dsh-vsceditor@0.5.3`）即可 —— 后续步骤（2.2 的 `HostFixed` / `ExtFixed` 判定、`paths.js` 标志文件）完全一样。
 
 **那台机器上还没有 clone：**
 
 ```powershell
 git clone https://github.com/k-ying/dsh-vsceditor.git "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
 cd "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
-git checkout fix/windows-paths
+git checkout main              # 或 git checkout v0.5.3（验证过的那一份）
 ```
 
 **已经有 clone：**
@@ -71,25 +76,26 @@ git checkout fix/windows-paths
 ```powershell
 cd "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
 git status                     # 若脏，先手动处理，别硬 checkout
-git fetch origin
-git checkout fix/windows-paths
-git log --oneline -3           # 期望看到 fix(windows) 那条，及其上一条纯文档提交
+git fetch origin --tags
+git checkout main              # 或 git checkout v0.5.3
+git log --oneline -3           # 期望看到 Merge pull request #8 / #7 那两条
 ```
 
 clone 到别处也行，**只要第 2.2 节能证明 DSH 加载的就是它**。
 
-**这台机器上没有 `git`（本次真机验证就是这种情况）：** 直接从 GitHub 拉分支 tarball 解包，代码内容与 `git clone` + `checkout` 完全等价，唯一区别是**目录里没有 `.git`** —— 第 5 节的 `git checkout main` 回滚用不了，替代方案见 5.1。
+**这台机器上没有 `git`（本次真机验证就是这种情况）：** 直接从 GitHub 拉 tarball 解包，代码内容与 `git clone` + `checkout` 完全等价，唯一区别是**目录里没有 `.git`** —— 第 5 节的 `git checkout main` 回滚用不了，替代方案见 5.1。
 
 ```powershell
 $dst = "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
-$tar = "$env:TEMP\fix-windows-paths.tar.gz"
-Invoke-WebRequest "https://codeload.github.com/k-ying/dsh-vsceditor/tar.gz/refs/heads/fix/windows-paths" -OutFile $tar
+$tar = "$env:TEMP\dsh-vsceditor.tar.gz"
+# 要复现经过验证的那一份，用 tag；跟进最新修复则用 refs/heads/main
+Invoke-WebRequest "https://codeload.github.com/k-ying/dsh-vsceditor/tar.gz/refs/tags/v0.5.3" -OutFile $tar
 New-Item -ItemType Directory -Force $dst | Out-Null
 tar -xzf $tar -C $dst --strip-components=1        # Windows 自带 bsdtar（1803+）
-Test-Path "$dst\vscode-ext\dsh-bridge\paths.js"   # 必须 True —— 这是分支代码的标志
+Test-Path "$dst\vscode-ext\dsh-bridge\paths.js"   # 必须 True —— 这是含本修复版本的标志
 ```
 
-> `tar.exe` 缺失时，改用 Node：`node -e "const z=require('zlib'),f=require('fs');..."`，或先解到临时目录再把 `dsh-vsceditor-fix-windows-paths\*` 拷进 `$dst`。
+> `tar.exe` 缺失时，改用 Node：`node -e "const z=require('zlib'),f=require('fs');..."`，或先解到临时目录再把解出的 `dsh-vsceditor-0.5.3\*` 拷进 `$dst`。
 
 ### 2.2 证明 DSH 真的在跑这份代码 ← 最容易翻车的一步
 
