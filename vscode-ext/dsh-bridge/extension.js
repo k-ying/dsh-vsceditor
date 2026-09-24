@@ -208,6 +208,8 @@ const state = {
   connected: false,
   sseReq: null,
   reconnectTimer: null,
+  // 已拿到端点却连不上时的退避步长；0 = 还没有失败记录，用最小值。
+  reconnectDelay: 0,
   lastKnown: new Map(), // fsPath -> last authoritative text (disk / DSH edit)
   reverting: new Set(),
   statusBar: null,
@@ -403,13 +405,28 @@ function pathKeyOf(p) {
 // ---------- host -> ext message handlers ----------
 // 去重：同一份编辑帧在 30s 窗口内只处理一次。SSE 重连、多路径投递都不应
 // 让同一个 diff 反复弹出抢走用户当前页签。
-let lastEditKey = '';
+//
+// 判等必须精确：这里要判的是「是不是同一份帧」，所以直接记住上一帧的
+// (路径, 正文)。早先用的是 `for (i = 0; i < t.length; i += 97)` 的抽样哈希，
+// 对任何短于 97 字符的正文循环体只跑一次，哈希退化成首字符码 —— 于是
+// 「等长 + 同首字符」的两份**不同**编辑被判成同一份帧：不再聚焦已有标签、
+// 不再定位到改动行，标签被关掉后 30s 内也不会重开（diff 右侧内容仍会刷新，
+// 因为那走的是 providers 的 change 事件）。正文用 === 比较即可，同一份帧在
+// 两次投递里内容必然逐字符相同。
+const DEDUP_WINDOW_MS = 30000;
+let lastEditPath = '';
+let lastEditText = null;
 let lastEditAt = 0;
-function editKeyOf(fsPath, newText) {
-  const t = typeof newText === 'string' ? newText : '';
-  let h = 0;
-  for (let i = 0; i < t.length; i += 97) h = (h * 31 + t.charCodeAt(i)) | 0;
-  return fsPath + '|' + t.length + '|' + h;
+function isSameEditFrame(fsPath, newText) {
+  return fsPath === lastEditPath &&
+    typeof newText === 'string' &&
+    newText === lastEditText &&
+    Date.now() - lastEditAt < DEDUP_WINDOW_MS;
+}
+function rememberEditFrame(fsPath, newText) {
+  lastEditPath = fsPath;
+  lastEditText = typeof newText === 'string' ? newText : null;
+  lastEditAt = Date.now();
 }
 // 打开（或聚焦）某文件的 DSH diff 标签；firstLine >= 0 时定位到首个改动行。
 // preview:false → 固定标签页：一轮改多个文件时各自的 diff 并存，不再互相
@@ -474,14 +491,12 @@ async function onEdit(msg) {
     state.lastKnown.set(pathKeyOf(fsPath), newText);
     currents.set(fsPath, newText);
   }
-  const key = editKeyOf(fsPath, msg.newText);
-  if (key === lastEditKey && Date.now() - lastEditAt < 30000) {
+  if (isSameEditFrame(fsPath, msg.newText)) {
     dbg('onEdit dedup skip for ' + fsPath);
     post({ type: 'ack', kind: 'edit', path: fsPath, follow: state.follow, dedup: true });
     return;
   }
-  lastEditKey = key;
-  lastEditAt = Date.now();
+  rememberEditFrame(fsPath, msg.newText);
   if (!state.follow) { post({ type: 'ack', kind: 'edit', path: fsPath, follow: false }); return; }
   try {
     const outcome = await openDiff(fsPath, typeof msg.firstLine === 'number' ? msg.firstLine : -1);
@@ -532,7 +547,10 @@ function resetTurnDiffs() {
   }
   snapshots.clear();
   currents.clear();
-  lastEditKey = '';
+  // 新一轮是新的帧：不能让同一文件的「同内容」编辑跨轮被误判成重复投递。
+  lastEditPath = '';
+  lastEditText = null;
+  lastEditAt = 0;
 }
 
 function handleMessage(msg) {
@@ -589,24 +607,47 @@ function handleMessage(msg) {
 }
 
 // ---------- SSE client ----------
+const RECONNECT_MIN_MS = 2500;
+const RECONNECT_MAX_MS = 30000;
 let lastLoggedMode = '';
+
+// 只有「当前这条」请求才有资格改连接状态或排下一次重连。被顶替掉的旧请求在
+// destroy() 之后会以 `error: aborted` 走完自己的 error 回调（这是 Node 的固定
+// 行为，不是服务端断开），旧代码没有这道门禁，于是：
+//   connectSSE() 顶掉一条**活流** → 旧流的 error 回调排下一次重连 →
+//   2.5s 后 connectSSE() 又顶掉当时活着的那条 → 无限循环（每 2.5s 一次），
+// 期间状态栏闪烁、日志刷屏，destroy/reconnect 的瞬间还可能丢帧。
+// 用 `state.sseReq === req` 判断即可，不需要额外的标志位。
+function isCurrentReq(req) {
+  return state.sseReq === req;
+}
+function clearReconnectTimer() {
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+}
+
 function connectSSE() {
   resolveBridge();
+  // 已经在连了，就不必再留一个待触发的重连。
+  clearReconnectTimer();
   if (bridge.mode !== lastLoggedMode) {
     lastLoggedMode = bridge.mode;
     log('mode=' + bridge.mode + (bridge.mode === 'desktop' ? ' workspace=' + (bridge.workspace || t('log.wsUnset')) : ''));
   }
-  if (bridge.mode === 'none') { setStatus(false, t('st.waitingDsh')); scheduleReconnect(); return; }
+  if (bridge.mode === 'none') { setStatus(false, t('st.waitingDsh')); scheduleReconnect(true); return; }
   if (!workspaceMatches()) {
     const mine = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath).join(',');
     log(t('log.wsMismatch', { dsh: bridge.workspace, mine: mine || t('log.noFolder') }));
     setStatus(false, bridge.workspace ? t('st.wsMismatch') : t('st.waitingWs'));
     maybePromptWorkspace();
-    scheduleReconnect(); // bridge.json may appear / change later
+    scheduleReconnect(true); // bridge.json may appear / change later
     return;
   }
   const target = bridge.events;
-  if (state.sseReq) { try { state.sseReq.destroy(); } catch (e) {} state.sseReq = null; }
+  if (state.sseReq) {
+    const prev = state.sseReq;
+    state.sseReq = null; // 先摘掉：prev 随后的 error 回调会因此被门禁挡下
+    try { prev.destroy(); } catch (e) {}
+  }
   const u = new URL(target);
   u.search = (u.search ? u.search + '&' : '?') + 'token=' + encodeURIComponent(bridge.token);
   // 只有内嵌模式（code-server，每次开编辑器页签都是全新的扩展宿主）才请求
@@ -618,14 +659,16 @@ function connectSSE() {
     path: u.pathname + u.search,
     headers: { accept: 'text/event-stream' },
   }, (res) => {
+    if (!isCurrentReq(req)) { dbg('SSE superseded response ignored (HTTP ' + res.statusCode + ')'); res.resume(); return; }
     if (res.statusCode !== 200) {
       setStatus(false, 'HTTP ' + res.statusCode);
       log(t('log.sseHandshakeFail', { code: res.statusCode }));
       res.resume();
-      scheduleReconnect();
+      scheduleReconnect(false);
       return;
     }
     state.connected = true;
+    state.reconnectDelay = 0; // 连上了，退避归零
     updateStatus();
     log(t('log.sseConnected', { target: target, suffix: isTrusted() ? '' : t('log.restrictedSuffix') }));
     if (!isTrusted()) { setStatus(true, t('st.restricted')); maybePromptTrust(); }
@@ -639,6 +682,7 @@ function connectSSE() {
     let buf = '';
     res.setEncoding('utf8');
     res.on('data', (chunk) => {
+      if (!isCurrentReq(req)) return;
       buf += chunk;
       let idx;
       while ((idx = buf.indexOf('\n\n')) >= 0) {
@@ -651,24 +695,43 @@ function connectSSE() {
         }
       }
     });
-    res.on('end', () => { state.connected = false; updateStatus(); log(t('log.sseEnded')); scheduleReconnect(); });
-    res.on('error', (e) => { state.connected = false; updateStatus(); log(t('log.sseError', { err: (e && e.message ? e.message : String(e)) })); scheduleReconnect(); });
+    res.on('end', () => {
+      if (!isCurrentReq(req)) { dbg('SSE superseded stream ended, no reconnect'); return; }
+      state.connected = false; updateStatus(); log(t('log.sseEnded')); scheduleReconnect(false);
+    });
+    res.on('error', (e) => {
+      if (!isCurrentReq(req)) { dbg('SSE superseded stream error ignored: ' + (e && e.message)); return; }
+      state.connected = false; updateStatus(); log(t('log.sseError', { err: (e && e.message ? e.message : String(e)) })); scheduleReconnect(false);
+    });
   });
   req.on('error', (e) => {
+    if (!isCurrentReq(req)) { dbg('SSE superseded connect error ignored: ' + (e && e.message)); return; }
     state.connected = false;
     updateStatus();
     log(t('log.sseConnectFail', { err: (e && e.message ? e.message : String(e)) }));
-    scheduleReconnect();
+    scheduleReconnect(false);
   });
   state.sseReq = req;
 }
 
-function scheduleReconnect() {
+// discovery=true：还没拿到可用端点（bridge.json 未出现 / 窗口工作区不匹配）。
+// 这两种情况只能靠轮询发现变化，所以保持固定 2.5s —— 退避会让「刚切到本机
+// 模式」白等半分钟；而它们不碰网络（只读一个本地 json），重试成本可忽略。
+// 已经有端点却握不上手/被断流时才退避：token 过期这类持久失败不该每 2.5s 撞一次。
+function scheduleReconnect(discovery) {
   if (state.reconnectTimer) return;
+  let delay;
+  if (discovery) {
+    state.reconnectDelay = 0;
+    delay = RECONNECT_MIN_MS;
+  } else {
+    delay = state.reconnectDelay > 0 ? state.reconnectDelay : RECONNECT_MIN_MS;
+    state.reconnectDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
+  }
   state.reconnectTimer = setTimeout(() => {
     state.reconnectTimer = null;
     connectSSE();
-  }, 2500);
+  }, delay);
 }
 
 // ---------- status ----------
@@ -807,8 +870,13 @@ function activate(context) {
 }
 
 function deactivate() {
-  if (state.sseReq) { try { state.sseReq.destroy(); } catch (e) {} }
-  if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+  // Null it out BEFORE destroying: the destroy makes the stream emit its
+  // `error: aborted`, and leaving state.sseReq pointing at it would let that
+  // callback schedule a reconnect for an extension that is being torn down.
+  const prev = state.sseReq;
+  state.sseReq = null;
+  if (prev) { try { prev.destroy(); } catch (e) {} }
+  clearReconnectTimer();
 }
 
 module.exports = {
@@ -816,6 +884,14 @@ module.exports = {
   deactivate,
   // Offline simulation surface: test/windows-sim.mjs requires this module with a
   // stubbed `vscode` and a forced win32 platform, so the Windows desktop reports
-  // (issues #4/#5/#6) can be reproduced on any machine. Unused at runtime.
-  __test: { handleMessage, workspaceMatches, openDiff, normPath, pathKeyOf, isProtected, snapshots, currents, state, bridge },
+  // (issues #4/#5/#6) can be reproduced on any machine. test/bridge-regressions.mjs
+  // additionally drives connectSSE() against a real local SSE server (the reconnect
+  // loop) and the edit-frame dedup directly (the key collision). Unused at runtime.
+  __test: {
+    handleMessage, workspaceMatches, openDiff, normPath, pathKeyOf, isProtected,
+    snapshots, currents, state, bridge,
+    connectSSE, scheduleReconnect, isCurrentReq, clearReconnectTimer,
+    isSameEditFrame, rememberEditFrame,
+    RECONNECT_MIN_MS, RECONNECT_MAX_MS, DEDUP_WINDOW_MS,
+  },
 };

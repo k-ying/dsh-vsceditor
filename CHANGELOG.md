@@ -14,7 +14,18 @@
 - **#5 相对路径丢盘符**：Agent 有时把工作区相对路径（`Tdata\config.lua`）交给 write/edit 工具，而 `editPathOf()` 原样透传，扩展再 `vscode.Uri.file()` 就得到 `\Tdata\xxx.lua`。现在 host 侧 `resolveEditPath()` 先按会话工作区解析成绝对路径（内外嵌两个后端都受益——内嵌在 macOS 上收到的多是绝对路径所以从未暴露），扩展侧再做一次防御性解析，并把 `lock`/`unlock`/`hello`/`edit`/`reveal` 的路径统一规范化，相对与绝对两种写法映射到同一个键
 - **#6 跟随 diff 右侧吃到 VS Code 文档缓存**：`openDiff()` 右侧用的是 `vscode.Uri.file(fsPath)`，走 TextDocument，于是**文件已作为普通标签打开时**，diff 左右两侧都显示改前内容，看起来像 Agent 没写上。现在右侧改为虚拟文档 `dsh-now://`，内容取自 host 回读的磁盘内容（`newText`，host 早已在发）。**注意**：这也意味着右侧不再随磁盘实时刷新——每次新编辑会经 provider 事件原地刷新，本轮累计 diff 语义不变
 - 顺手修掉同族的另外三处：`encodePath()` 与 diff 标题的 `baseName()` 都用 `split('/')` 切分，而 win32 路径是反斜杠 —— 编码后整条路径坍缩成一个 `%5C` 段、标题显示完整路径；`followWorkspaceOnly` 的工作区包含判断用 `p.indexOf(root + path.sep) !== 0`，盘符大小写不同时会把**工作区内的文件误判为区外**并静默不弹 diff（host 侧的 #5 变体）。现分别改为按 `[\\/]` 切分、以及 `isInsideOrEqualPath()`（win32 大小写不敏感，容忍 root 带尾分隔符）
-- **模拟实验**：新增 `test/windows-sim.mjs`（47 项）。三条报告都是 Windows + 桌面模式，贡献者在 macOS/Linux 上跑不了，所以该用例**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，用报告里的路径驱动 `handleMessage()`，断言工作区匹配、路径解析、`vscode.diff` 收到的 URI scheme 与 provider 内容。**它当场抓出了三个我自己的缺陷**：(a) 锁定键按原始拼写存、而 `isProtected` 用 `doc.uri.fsPath` 查，Windows 下会**静默失去保护**；(b) `lastKnown` 同一文件存两份拼写，回滚保护可能取到过期那份；(c) 相对帧与绝对帧拼写不同会给同一文件开**两个 diff 标签**。三者统一改为「按工作区文件夹的拼写规范化 + 大小写折叠键」后消解
+- **模拟实验**：新增 `test/windows-sim.mjs`（53 项）。三条报告都是 Windows + 桌面模式，贡献者在 macOS/Linux 上跑不了，所以该用例**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，用报告里的路径驱动 `handleMessage()`，断言工作区匹配、路径解析、`vscode.diff` 收到的 URI scheme 与 provider 内容。**它当场抓出了三个我自己的缺陷**：(a) 锁定键按原始拼写存、而 `isProtected` 用 `doc.uri.fsPath` 查，Windows 下会**静默失去保护**；(b) `lastKnown` 同一文件存两份拼写，回滚保护可能取到过期那份；(c) 相对帧与绝对帧拼写不同会给同一文件开**两个 diff 标签**。三者统一改为「按工作区文件夹的拼写规范化 + 大小写折叠键」后消解
+- **真机验证**：三条修复在 Windows 10 Pro 22H2 + VS Code 1.138.0 上全部通过（含人眼确认的 diff 标签渲染与标题）。部署手册见 `docs/windows-verification.md`，完整报告与复现脚本见 `docs/windows-verification-report.md`、`docs/evidence/`
+
+### 修复（SSE 重连自维持循环 / 编辑帧去重键碰撞）
+
+两条都不是 Windows 特有的，`main` 上就已存在，是 Windows 真机验证时顺带发现的（见 `docs/windows-verification-report.md` §5）。
+
+- **SSE 每 2.5s 重连的自维持循环**：`connectSSE()` 会先 `destroy()` 掉上一条流再开新的，而被顶替的那条流会以 `error: aborted` 走完自己的 error 回调 —— 原代码没有门禁，于是该回调排出下一次重连，2.5s 后又顶掉当时**活着的**流，循环永不停止（状态栏闪烁、日志刷屏，destroy/reconnect 的瞬间还可能丢帧）。现在所有 handler 先判 `state.sseReq === req`：只有当前这条流能改连接状态或排下一次重连；`connectSSE()` 入口额外清掉待触发的重连定时器（已经在连了就不必再留一个），连接成功时把退避归零。触发场景很常见：`activate()` 之后紧跟一次 `onDidGrantWorkspaceTrust` / `onDidChangeWorkspaceFolders`
+- **编辑帧去重键碰撞**：去重本意是「同一份帧 30s 内只处理一次」（SSE 重连、多路径投递），但键是 `path|长度|抽样哈希`，抽样步长 `i += 97` 对任何短于 97 字符的正文只让循环体跑一次、哈希退化成首字符码 —— 于是「等长 + 同首字符」的**不同**编辑被判成同一份帧：不再聚焦已有标签、不再定位改动行，标签被用户关掉后 30s 内也不会重开（右侧内容仍会刷新，那条走 provider 的 change 事件）。现在直接记住上一帧的 (路径, 正文) 做精确比较，并在 turn 边界清空（新一轮的帧不该被上一轮误判）
+- **重连退避**：已经拿到端点却握不上手 / 被断流时按 2.5s → 30s 指数退避。此前是固定 2.5s：token 不同步期间本地日志里留下了连续 27 次 `SSE 握手失败：HTTP 403`。但「还没拿到端点」的发现阶段（`bridge.json` 尚未出现、窗口工作区不匹配）**保持固定 2.5s** —— 这两种情况只能靠轮询发现变化，退避会让刚切到本机模式的用户白等半分钟
+- **回归覆盖**：新增 `test/bridge-regressions.mjs`（21 项）。这两处此前**无法被测试覆盖**（`connectSSE()` 没导出、去重键由未导出的内部函数计算），所以先把它们纳入 `__test`，再用真实 `extension.js` + 桩化 `vscode` + 一个**真实 HTTP SSE 服务端**驱动（循环只在 destroy 活流时出现，假服务端测不出来）。已做变异验证：把两处修复退回旧行为后该用例报 8 条失败，其中一条正是循环复现（窗口内连接数 4 > 2）
+- **CI 加矩阵**：`.github/workflows/test.yml` 从单个 `ubuntu-latest` 改为 `ubuntu-latest` / `windows-latest` / `macos-latest` —— `#4/#5/#6` 这三个 bug 恰好是 CI 看不见的类型（模拟用例本来就是注入 win32 的，只有真实平台才跑得到默认 `process.platform` 分支）
 
 ### 可观测性
 
@@ -27,7 +38,7 @@
 ### 发版前必做
 
 - 本版改动了 `vscode-ext/dsh-bridge/`（`extension.js` 与**新增的 `paths.js`**）。按 README「版本号规范」（插件与扩展保持 major.minor 一致），**发版时扩展版本必须从 `0.5.0` 提到 `0.5.x`**——否则 host 会认为已安装扩展与内置扩展同版本、不重新拷贝，用户拿不到新扩展代码。`paths.js` 无需额外处理：`installDesktopExtension()` 是整目录 `cpSync`，`package.json` 的 `files` 也已包含整个 `vscode-ext/dsh-bridge`
-- `test/` 不在 `files` 中，所以两个测试文件不随 npm 包发布（`npm test` 只在仓库内跑）
+- `test/` 不在 `files` 中，所以三个测试文件不随 npm 包发布（`npm test` 只在仓库内跑）
 
 ## [0.5.2] - 2026-09-20
 
