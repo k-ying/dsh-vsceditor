@@ -6,6 +6,16 @@
 
 > 未发版：代码已就位，尚未升版本号、未打 tag、未发布 npm。
 
+### 修复（Windows 桌面模式的路径处理，#4 / #5 / #6）
+
+三条报告都来自 Windows + `editorBackend: local`，根因是同一个：路径在整条链路上被当作**不透明字符串**。修法是引入 `vscode-ext/dsh-bridge/paths.js`（纯函数、平台可注入），让扩展与 host 都按文件系统语义处理路径。
+
+- **#4 工作区匹配忽略盘符大小写**：`workspaceMatches()` 原先用 `===` 比较 `workspaceFolders[0].uri.fsPath` 与 bridge 里的工作区路径。Windows 上 VS Code 报大写盘符（`E:\projects\demo`）、DSH 的 cwd 常是小写（`e:\projects\demo`），两者被当成不同目录，于是扩展**一直连不上**——状态栏「工作区不匹配」，跟随 / diff / 锁定全部失效。现在改用 `sameFsPath()`：win32 下大小写不敏感，并归一化分隔符与尾分隔符；POSIX 保持大小写敏感（Linux 确实区分，macOS 未被报告过）。**Windows 只在盘符大小写不同时才会触发，所以这条不修，#5/#6 根本观察不到**
+- **#5 相对路径丢盘符**：Agent 有时把工作区相对路径（`Tdata\config.lua`）交给 write/edit 工具，而 `editPathOf()` 原样透传，扩展再 `vscode.Uri.file()` 就得到 `\Tdata\xxx.lua`。现在 host 侧 `resolveEditPath()` 先按会话工作区解析成绝对路径（内外嵌两个后端都受益——内嵌在 macOS 上收到的多是绝对路径所以从未暴露），扩展侧再做一次防御性解析，并把 `lock`/`unlock`/`hello`/`edit`/`reveal` 的路径统一规范化，相对与绝对两种写法映射到同一个键
+- **#6 跟随 diff 右侧吃到 VS Code 文档缓存**：`openDiff()` 右侧用的是 `vscode.Uri.file(fsPath)`，走 TextDocument，于是**文件已作为普通标签打开时**，diff 左右两侧都显示改前内容，看起来像 Agent 没写上。现在右侧改为虚拟文档 `dsh-now://`，内容取自 host 回读的磁盘内容（`newText`，host 早已在发）。**注意**：这也意味着右侧不再随磁盘实时刷新——每次新编辑会经 provider 事件原地刷新，本轮累计 diff 语义不变
+- 顺手修掉同族的另外三处：`encodePath()` 与 diff 标题的 `baseName()` 都用 `split('/')` 切分，而 win32 路径是反斜杠 —— 编码后整条路径坍缩成一个 `%5C` 段、标题显示完整路径；`followWorkspaceOnly` 的工作区包含判断用 `p.indexOf(root + path.sep) !== 0`，盘符大小写不同时会把**工作区内的文件误判为区外**并静默不弹 diff（host 侧的 #5 变体）。现分别改为按 `[\\/]` 切分、以及 `isInsideOrEqualPath()`（win32 大小写不敏感，容忍 root 带尾分隔符）
+- **模拟实验**：新增 `test/windows-sim.mjs`（47 项）。三条报告都是 Windows + 桌面模式，贡献者在 macOS/Linux 上跑不了，所以该用例**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，用报告里的路径驱动 `handleMessage()`，断言工作区匹配、路径解析、`vscode.diff` 收到的 URI scheme 与 provider 内容。**它当场抓出了三个我自己的缺陷**：(a) 锁定键按原始拼写存、而 `isProtected` 用 `doc.uri.fsPath` 查，Windows 下会**静默失去保护**；(b) `lastKnown` 同一文件存两份拼写，回滚保护可能取到过期那份；(c) 相对帧与绝对帧拼写不同会给同一文件开**两个 diff 标签**。三者统一改为「按工作区文件夹的拼写规范化 + 大小写折叠键」后消解
+
 ### 可观测性
 
 - **扩展 ack 不再被丢弃**：`/state` 新增 `lastAck`（`kind`/`path`/`follow`/`opened`/`timeout`/`dedup`/`error`/`at`）。此前 host 的 RPC 分发只处理 `ready`/`set-follow`/`log`，扩展对每个 edit 帧回报的 ack 被直接扔掉，于是「diff 到底弹没弹」在面板侧毫无凭据。现在 `openDiff` 会把结果如实带回：6 秒超时既不抛错也不等于已弹出，ack 里用 `opened`/`timeout` 区分；扩展明确抛错时面板给出红字提示并指向 `~/.dsh-editor/bridge-ext.log`
@@ -16,7 +26,8 @@
 
 ### 发版前必做
 
-- 本版改动了 `vscode-ext/dsh-bridge/extension.js`。按 README「版本号规范」（插件与扩展保持 major.minor 一致），**发版时扩展版本必须从 `0.5.0` 提到 `0.5.x`**——否则 host 会认为已安装扩展与内置扩展同版本、不重新拷贝，用户拿不到新扩展代码
+- 本版改动了 `vscode-ext/dsh-bridge/`（`extension.js` 与**新增的 `paths.js`**）。按 README「版本号规范」（插件与扩展保持 major.minor 一致），**发版时扩展版本必须从 `0.5.0` 提到 `0.5.x`**——否则 host 会认为已安装扩展与内置扩展同版本、不重新拷贝，用户拿不到新扩展代码。`paths.js` 无需额外处理：`installDesktopExtension()` 是整目录 `cpSync`，`package.json` 的 `files` 也已包含整个 `vscode-ext/dsh-bridge`
+- `test/` 不在 `files` 中，所以两个测试文件不随 npm 包发布（`npm test` 只在仓库内跑）
 
 ## [0.5.2] - 2026-09-20
 

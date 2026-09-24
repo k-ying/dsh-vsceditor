@@ -16,6 +16,8 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+// Windows-safe path handling (see paths.js for why each helper exists).
+const { sameFsPath, resolveEditPath, baseName, encodePath, fsKey, canonicalizeUnder } = require('./paths');
 // Debug log is opt-in: set DSH_BRIDGE_DEBUG to a non-empty value, or flip the
 // plugin's `bridgeDebug` setting (the host pushes it over SSE as a `debug`
 // frame), to append traces to /tmp/dsh-bridge-debug.log. Runtime-toggleable on
@@ -257,12 +259,17 @@ function resolveBridge() {
 
 // Desktop mode serves only the window whose workspace matches the DSH session
 // workspace; other VS Code windows stay idle (no cross-window event leaks).
-function normFs(p) { return String(p || '').replace(/[\\/]+$/, ''); }
+//
+// The comparison must be filesystem-aware: on Windows the drive letter's case
+// is arbitrary (`E:\proj` from VS Code vs `e:\proj` from a shell/DSH cwd), and a
+// plain `===` treated them as different directories — the extension then never
+// connected at all (issue #4). sameFsPath also normalizes separators and a
+// trailing separator.
 function workspaceMatches() {
   if (bridge.mode !== 'desktop') return true;
   if (!bridge.workspace) return false;
   const folders = vscode.workspace.workspaceFolders || [];
-  return folders.some((f) => normFs(f.uri.fsPath) === normFs(bridge.workspace));
+  return folders.some((f) => sameFsPath(f.uri.fsPath, bridge.workspace));
 }
 let promptedFor = '';
 function maybePromptWorkspace() {
@@ -315,39 +322,94 @@ function post(msg) {
   } catch (e) { /* never throw from telemetry */ }
 }
 
-// ---------- snapshot (diff left side) ----------
-class SnapshotProvider {
-  constructor() {
+// ---------- virtual diff documents ----------
+// Both sides of the follow diff are served from these providers rather than from
+// a real `file:` URI. The left side is this turn's baseline (oldText); the right
+// side is the post-edit content the host read back from disk (newText).
+//
+// The right side used to be `vscode.Uri.file(fsPath)`, which reads through VS
+// Code's TextDocument: when the file was ALREADY open as a normal tab, the diff
+// showed the stale in-memory text on both sides and the edit looked like it had
+// never been applied (issue #6). A virtual document takes its content from the
+// host's disk read instead, so it is correct by construction. It also avoids the
+// only other way to force a refresh — reverting the document — which would
+// destroy unsaved user edits.
+class VirtualDocProvider {
+  constructor(label, uriOf) {
+    this._label = label;
+    this._uriOf = uriOf;
     this._emitter = new vscode.EventEmitter();
     this.onDidChange = this._emitter.event;
-    this._contents = new Map(); // key(fsPath) -> oldText
+    this._contents = new Map(); // key(fsPath) -> text
   }
   set(fsPath, text) {
     this._contents.set(fsPath, text);
-    this._emitter.fire(snapUri(fsPath));
+    // Fire on every set so an ALREADY OPEN diff refreshes in place and becomes
+    // the running per-turn diff, instead of having to be closed and reopened.
+    this._emitter.fire(this._uriOf(fsPath));
   }
   provideTextDocumentContent(uri) {
     const key = decodeURIComponent(uri.query || '');
-    dbg('provider called, key=' + key + ' hit=' + this._contents.has(key));
-    return this._contents.get(key) ?? '';
+    const hit = this._contents.has(key);
+    dbg(this._label + ' provider called, key=' + key + ' hit=' + hit);
+    return hit ? this._contents.get(key) : '';
   }
+  clear() { this._contents.clear(); }
 }
 function snapUri(fsPath) {
   return vscode.Uri.parse('dsh-snap://snapshot' + encodePath(fsPath) + '?' + encodeURIComponent(fsPath));
 }
-function encodePath(p) { return '/' + p.split('/').map(encodeURIComponent).join('/'); }
-const snapshots = new SnapshotProvider();
+function nowUri(fsPath) {
+  return vscode.Uri.parse('dsh-now://current' + encodePath(fsPath) + '?' + encodeURIComponent(fsPath));
+}
+const snapshots = new VirtualDocProvider('snap', snapUri);
+const currents = new VirtualDocProvider('now', nowUri);
+
+// The root a workspace-relative agent path should be resolved against. Desktop
+// mode knows it from bridge.json; embedded mode does not (the host always sends
+// absolute paths there), so fall back to the first workspace folder rather than
+// guessing from process.cwd().
+function workspaceRootHint() {
+  if (bridge.workspace) return bridge.workspace;
+  const folders = vscode.workspace.workspaceFolders || [];
+  return folders.length ? folders[0].uri.fsPath : '';
+}
+// Normalize an incoming path once, at every entry point, so lock/edit/unlock
+// keys and the diff URIs all agree.
+function normPath(p) {
+  const resolved = resolveEditPath(p, workspaceRootHint());
+  if (!resolved) return '';
+  // Prefer VS Code's own casing for anything inside a workspace folder, so the
+  // same file always yields the same string no matter how a frame spelled it.
+  return canonicalizeUnder(resolved, workspaceFolderPaths());
+}
+function workspaceFolderPaths() {
+  return (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath).filter(Boolean);
+}
+function editPathOf(msg) {
+  return normPath(msg && msg.path);
+}
+// Storage key for state.locked / state.lastKnown. Those two are pure lookup
+// containers, so they can be keyed by a case-folded form where the filesystem is
+// case-insensitive — which matters because VS Code reports `doc.uri.fsPath` with
+// its own drive-letter casing while frames arrive with the host's. Without this,
+// a locked file would silently stop being protected on Windows, and revert
+// protection would look up a key that was stored under a different spelling.
+function pathKeyOf(p) {
+  const resolved = normPath(p);
+  return resolved ? fsKey(resolved) : undefined;
+}
 
 // ---------- host -> ext message handlers ----------
 // 去重：同一份编辑帧在 30s 窗口内只处理一次。SSE 重连、多路径投递都不应
 // 让同一个 diff 反复弹出抢走用户当前页签。
 let lastEditKey = '';
 let lastEditAt = 0;
-function editKeyOf(msg) {
-  const t = typeof msg.newText === 'string' ? msg.newText : '';
+function editKeyOf(fsPath, newText) {
+  const t = typeof newText === 'string' ? newText : '';
   let h = 0;
   for (let i = 0; i < t.length; i += 97) h = (h * 31 + t.charCodeAt(i)) | 0;
-  return msg.path + '|' + t.length + '|' + h;
+  return fsPath + '|' + t.length + '|' + h;
 }
 // 打开（或聚焦）某文件的 DSH diff 标签；firstLine >= 0 时定位到首个改动行。
 // preview:false → 固定标签页：一轮改多个文件时各自的 diff 并存，不再互相
@@ -355,8 +417,10 @@ function editKeyOf(msg) {
 // 一次只会聚焦已有标签而不会开重复页。
 async function openDiff(fsPath, firstLine) {
   const left = snapUri(fsPath);
-  const right = vscode.Uri.file(fsPath);
-  const base = fsPath.split('/').pop() || fsPath;
+  // Right side is a virtual document fed by the host's disk read, NOT
+  // vscode.Uri.file() — see the VirtualDocProvider comment (issue #6).
+  const right = nowUri(fsPath);
+  const base = baseName(fsPath) || fsPath;
   dbg('calling vscode.diff, windowFocused=' + vscode.window.state.focused + ' visibleEditors=' + vscode.window.visibleTextEditors.length);
   const diffDone = vscode.commands.executeCommand('vscode.diff', left, right, t('diff.title', { base: base }), { preview: false });
   const raced = await Promise.race([
@@ -389,19 +453,28 @@ async function openDiff(fsPath, firstLine) {
 }
 
 async function onEdit(msg) {
-  const fsPath = msg.path;
+  // Resolve once, here, so the snapshot key, the diff URIs, the dedup key and
+  // the ack all refer to the same absolute path even when an agent handed the
+  // tool a workspace-relative one (issue #5).
+  const fsPath = editPathOf(msg);
+  if (!fsPath) return;
   dbg('onEdit start, follow=' + state.follow);
   // 轮次级累计基线：快照只在「该文件本轮还没有基线」时建立（左边 = DSH 本轮
-  // 动手前），右边是真实文件随磁盘自动刷新，diff 标签原地变成本轮累计 diff。
-  // 基线不随标签关闭而重置——关掉标签后本轮再改该文件会带着原基线重开 diff；
-  // 只有 host 广播 turn（新一轮对话产生首次编辑）时才清空（见 resetTurnDiffs）。
+  // 动手前），右边用 host 回读的磁盘内容，两侧都由扩展提供，diff 标签原地变成
+  // 本轮累计 diff。基线不随标签关闭而重置——关掉标签后本轮再改该文件会带着原
+  // 基线重开 diff；只有 host 广播 turn（新一轮对话产生首次编辑）时才清空
+  // （见 resetTurnDiffs）。
   // 内嵌模式页面刷新后扩展宿主重建、快照 Map 清空，但 VS Code 会恢复之前固定
   // 的 diff 标签——此时左侧会变成空白，靠重放帧里的 oldText 重新填充。
   if (!snapshots._contents.has(fsPath)) {
     snapshots.set(fsPath, typeof msg.oldText === 'string' ? msg.oldText : '');
   }
-  state.lastKnown.set(fsPath, typeof msg.newText === 'string' ? msg.newText : state.lastKnown.get(fsPath));
-  const key = editKeyOf(msg);
+  const newText = typeof msg.newText === 'string' ? msg.newText : state.lastKnown.get(pathKeyOf(fsPath));
+  if (typeof newText === 'string') {
+    state.lastKnown.set(pathKeyOf(fsPath), newText);
+    currents.set(fsPath, newText);
+  }
+  const key = editKeyOf(fsPath, msg.newText);
   if (key === lastEditKey && Date.now() - lastEditAt < 30000) {
     dbg('onEdit dedup skip for ' + fsPath);
     post({ type: 'ack', kind: 'edit', path: fsPath, follow: state.follow, dedup: true });
@@ -424,9 +497,11 @@ async function onEdit(msg) {
 }
 
 async function onReveal(msg) {
-  dbg('onReveal start: ' + msg.path);
+  const fsPath = editPathOf(msg);
+  if (!fsPath) return;
+  dbg('onReveal start: ' + fsPath);
   try {
-    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(msg.path));
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(fsPath));
     const ed = await vscode.window.showTextDocument(doc, { preview: true });
     if (typeof msg.line === 'number' && msg.line >= 0) {
       const line = Math.min(msg.line, Math.max(0, doc.lineCount - 1));
@@ -446,13 +521,17 @@ function resetTurnDiffs() {
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
       const input = tab.input;
+      // Both sides are virtual now (dsh-snap left / dsh-now right), so match on
+      // either rather than only the left one.
       if (input instanceof vscode.TabInputTextDiff &&
-          input.original && input.original.scheme === 'dsh-snap') {
+          ((input.original && input.original.scheme === 'dsh-snap') ||
+           (input.modified && input.modified.scheme === 'dsh-now'))) {
         try { vscode.window.tabGroups.close(tab); } catch (e) {}
       }
     }
   }
-  snapshots._contents.clear();
+  snapshots.clear();
+  currents.clear();
   lastEditKey = '';
 }
 
@@ -464,7 +543,7 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'hello':
       state.follow = !!msg.follow;
-      state.locked = new Set(Array.isArray(msg.locked) ? msg.locked : []);
+      state.locked = new Set((Array.isArray(msg.locked) ? msg.locked : []).map(pathKeyOf).filter(Boolean));
       // Only override when the host actually states it, so an env-enabled trace
       // is not silently switched off by an older host that omits the field.
       if (typeof msg.debug === 'boolean') DEBUG = msg.debug;
@@ -487,12 +566,16 @@ function handleMessage(msg) {
       state.follow = !!msg.enabled;
       updateStatus();
       break;
-    case 'lock':
-      if (msg.path) state.locked.add(msg.path);
+    case 'lock': {
+      const k = pathKeyOf(msg.path);
+      if (k) state.locked.add(k);
       break;
-    case 'unlock':
-      if (msg.path) state.locked.delete(msg.path);
+    }
+    case 'unlock': {
+      const k = pathKeyOf(msg.path);
+      if (k) state.locked.delete(k);
       break;
+    }
     case 'edit':
       onEdit(msg);
       break;
@@ -605,12 +688,14 @@ function updateStatus(note) {
 
 // ---------- edit protection ----------
 function isProtected(fsPath) {
-  return state.follow || state.locked.has(fsPath);
+  // Keyed lookup, not `has(fsPath)`: on Windows the frame's spelling and
+  // doc.uri.fsPath's spelling can differ in drive-letter case (see pathKeyOf).
+  return state.follow || state.locked.has(pathKeyOf(fsPath));
 }
 function revertDocument(doc) {
   const fsPath = doc.uri.fsPath;
   if (state.reverting.has(fsPath)) return;
-  const known = state.lastKnown.get(fsPath);
+  const known = state.lastKnown.get(pathKeyOf(fsPath));
   if (typeof known !== 'string') return;
   if (doc.getText() === known) return;
   state.reverting.add(fsPath);
@@ -629,7 +714,10 @@ function revertDocument(doc) {
 function activate(context) {
   dbg('activate, bridge=' + (process.env.DSH_BRIDGE_EVENTS || '(none)'));
   context.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider('dsh-snap', snapshots)
+    vscode.workspace.registerTextDocumentContentProvider('dsh-snap', snapshots),
+    // Right side of the follow diff: served from the host's disk read so an
+    // already-open tab cannot supply a stale TextDocument cache (issue #6).
+    vscode.workspace.registerTextDocumentContentProvider('dsh-now', currents)
   );
 
   state.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -666,7 +754,7 @@ function activate(context) {
 
   // Track authoritative content; revert edits on protected docs.
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument((doc) => {
-    if (doc.uri.scheme === 'file') state.lastKnown.set(doc.uri.fsPath, doc.getText());
+    if (doc.uri.scheme === 'file') state.lastKnown.set(pathKeyOf(doc.uri.fsPath), doc.getText());
   }));
 
   // 基线生命周期是轮次级的：关掉 diff 标签不再删快照（本轮再改该文件会带原
@@ -689,7 +777,7 @@ function activate(context) {
     }, 150);
   }));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
-    if (doc.uri.scheme === 'file') state.lastKnown.set(doc.uri.fsPath, doc.getText());
+    if (doc.uri.scheme === 'file') state.lastKnown.set(pathKeyOf(doc.uri.fsPath), doc.getText());
   }));
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((e) => {
     const doc = e.document;
@@ -698,7 +786,7 @@ function activate(context) {
     if (isProtected(doc.uri.fsPath)) {
       revertDocument(doc);
     } else {
-      state.lastKnown.set(doc.uri.fsPath, doc.getText());
+      state.lastKnown.set(pathKeyOf(doc.uri.fsPath), doc.getText());
     }
   }));
 
@@ -723,4 +811,11 @@ function deactivate() {
   if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+  activate,
+  deactivate,
+  // Offline simulation surface: test/windows-sim.mjs requires this module with a
+  // stubbed `vscode` and a forced win32 platform, so the Windows desktop reports
+  // (issues #4/#5/#6) can be reproduced on any machine. Unused at runtime.
+  __test: { handleMessage, workspaceMatches, openDiff, normPath, pathKeyOf, isProtected, snapshots, currents, state, bridge },
+};
