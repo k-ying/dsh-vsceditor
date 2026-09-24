@@ -120,6 +120,14 @@ const require = createRequire(import.meta.url);
 const ext = require("../vscode-ext/dsh-bridge/extension.js");
 const T = ext.__test;
 const SETTLE = () => new Promise((r) => setTimeout(r, 80));
+// A fixed sleep is not enough for a socket round-trip on every CI runner (the
+// Windows runner needed ~200ms for the second connection), so state assertions
+// about the SSE client poll for the condition instead of assuming a duration.
+async function waitUntil(fn, ms = 4000) {
+  const t0 = Date.now();
+  while (!fn() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 25));
+  return fn();
+}
 
 // activate() registers the virtual-document providers used by openDiff.
 ext.activate({ subscriptions: [] });
@@ -222,14 +230,14 @@ process.env.DSH_BRIDGE_TOKEN = "regression-token";
 
 // Two connectSSE() calls back to back: exactly the shape produced by
 // activate() + onDidGrantWorkspaceTrust() / onDidChangeWorkspaceFolders(), and the
-// entry point of the loop. The second call must supersede the first cleanly.
+// entry point of the loop. The second call must supersede the first cleanly, so
+// the first stream has to be genuinely live before the second call happens.
 T.connectSSE();
-await SETTLE();
-check(T.state.connected === true, "A: the first call establishes a live stream");
+check(await waitUntil(() => established === 1 && T.state.connected === true),
+  "A: the first call establishes a live stream");
 T.connectSSE();
-await SETTLE();
-eq(established, 2, "A: the second call establishes its own stream");
-check(T.state.connected === true, "A: superseding leaves the new stream connected");
+check(await waitUntil(() => established === 2), "A: the second call establishes its own stream");
+check(await waitUntil(() => T.state.connected === true), "A: superseding leaves the new stream connected");
 
 // With the loop present this window (2.5s apart) would add a 3rd connection at
 // ~2.5s and a 4th at ~5s. 7s gives three chances to observe it.
