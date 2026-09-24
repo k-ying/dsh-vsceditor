@@ -30,6 +30,11 @@ macOS 上能跑的自动化已经全绿（`npm test` → 106 项），但下面�
 | 插件版本 | `0.5.2`（**未改动**） |
 | 扩展版本 | `0.5.0`（**未改动**） |
 | 发版 | 无 tag、无 npm 发布 |
+| 真机验证 | ✅ Windows 10 Pro 22H2 · VS Code 1.138.0 · 2026-09-23（`#4/#5/#6` 三条全部通过） |
+
+> 📄 真机验证的完整报告（含实测数据、两个新发现的缺陷、本文档的偏差清单）：
+> [`docs/windows-verification-report.md`](windows-verification-report.md)。
+> 下面标注「实测」的段落就是那次验证回填的结果。
 
 > ⚠️ 版本号没动，正是第 2.4 节那个坑的来源，请务必读完再动手。
 
@@ -73,6 +78,19 @@ git log --oneline -3           # 期望看到 fix(windows) 那条，及其上一
 
 clone 到别处也行，**只要第 2.2 节能证明 DSH 加载的就是它**。
 
+**这台机器上没有 `git`（本次真机验证就是这种情况）：** 直接从 GitHub 拉分支 tarball 解包，代码内容与 `git clone` + `checkout` 完全等价，唯一区别是**目录里没有 `.git`** —— 第 5 节的 `git checkout main` 回滚用不了，替代方案见 5.1。
+
+```powershell
+$dst = "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
+$tar = "$env:TEMP\fix-windows-paths.tar.gz"
+Invoke-WebRequest "https://codeload.github.com/k-ying/dsh-vsceditor/tar.gz/refs/heads/fix/windows-paths" -OutFile $tar
+New-Item -ItemType Directory -Force $dst | Out-Null
+tar -xzf $tar -C $dst --strip-components=1        # Windows 自带 bsdtar（1803+）
+Test-Path "$dst\vscode-ext\dsh-bridge\paths.js"   # 必须 True —— 这是分支代码的标志
+```
+
+> `tar.exe` 缺失时，改用 Node：`node -e "const z=require('zlib'),f=require('fs');..."`，或先解到临时目录再把 `dsh-vsceditor-fix-windows-paths\*` 拷进 `$dst`。
+
 ### 2.2 证明 DSH 真的在跑这份代码 ← 最容易翻车的一步
 
 `dsh plugin add <本地目录>` 装法会在 profile 里建一个**指向 clone 的链接**；从 GitHub/npm 装法则是一份**独立拷贝**。
@@ -114,9 +132,21 @@ Get-ChildItem "$env:USERPROFILE\.dsh\profiles" -Directory | ForEach-Object {
 现在两边都是 `0.5.0` → **它什么都不做**。
 UI 上那个「安装/更新扩展」按钮同样只在版本不一致时才渲染出来（`lib/client.js` 里按钮条件是 `!extInstalled || !extUpToDate`）。
 
-**所以你直接启动 VS Code，跑的一定是修之前的扩展。** 三选一：
+**所以在一台「已经装过扩展」的机器上，你直接启动 VS Code，跑的一定是修之前的扩展。** 三选一：
 
-**A. 临时改版本号（推荐 —— 最接近真实发版路径，顺带把安装流程也验了）**
+> **先判断你的机器属于哪种情况**（本次真机验证遇到的正是第一种，结论与手册原文相反）：
+>
+> - **扩展从未装过** → `extInstalled = false`。`ensureDesktopExtSynced()` 的判断是
+>   `d.cli && d.extInstalled && !d.extUpToDate`，**本来就不会触发**；但 UI 按钮的条件是
+>   `!extInstalled || !extUpToDate`，**必然为真**，连接向导第 2 步也会自动装（`lib/client.js`）。
+>   → **走正常安装路径即可，不需要改版本号，更不要用下面的 B。**
+> - **扩展已装过**（升级场景）→ 就是上面那个坑，按下面的 A / B / C 处理。
+>
+> ⚠️ **B 有副作用**：手动拷贝会让 `extInstalled` / `extUpToDate` 变成 `true`，把**真实安装流程整个跳过去**。
+> 本次真机验证走的是真实安装路径，事后 `/state` 里 `extInstalled` / `extUpToDate` 均为 `true`，
+> 即「插件把 0.5.0 扩展装进 `.vscode\extensions` 并比对版本」这一环是被真正验过的。
+
+**A. 临时改版本号（已装过扩展时的推荐 —— 最接近真实发版路径，顺带把安装流程也验了）**
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
@@ -174,12 +204,19 @@ New-Item -ItemType Directory -Force C:\tmp
 ### 用例 1（前提）：#4 工作区匹配
 
 1. 桌面 VS Code 打开工作区，**盘符用大写**：`E:\projects\demo`
+   （**盘符随意**：本次验证的机器上根本没有 `E:` 盘。关键是下面两侧的**拼写差异**，不是具体是哪块盘）
 2. 终端里 `cd e:\projects\demo`（**盘符小写**）后启动 DSH
 
 | | 期望 |
 |---|---|
 | 通过 | 编辑器页签连上；状态栏显示 `DSH · 跟随`；不再出现「工作区不匹配 / workspace mismatch」 |
 | 失败 | 扩展不连、跟随不生效 → 后面两条不用测了，直接进第 4 节抓证据 |
+
+> **实测**：这个大小写差异在真机上是**自然出现**的，不需要人为构造 ——
+> `GET /__dsh-vsceditor/state` 返回 `extReady.workspace = "c:\\Users\\apple\\ai"`（小写，
+> 来自 `vscode.workspace.workspaceFolders[0].uri.fsPath`）而 host 侧 `workspace = "C:\\Users\\apple\\ai"`。
+> 旧代码那句 `===` 在这两个真实字符串上就是 `false` → 扩展永不连接（即 #4）。
+> 这条同时回答了 §7 的缺口：**真实盘符大小写下 `uri.fsPath` 报的是小写盘符。**
 
 ### 用例 2（先看这条，最容易看到）：#6 diff 右侧吃缓存
 
@@ -190,7 +227,15 @@ New-Item -ItemType Directory -Force C:\tmp
 |---|---|
 | 通过 | diff **右侧显示 `15-25`**；左侧是 `5-15` |
 | 失败 | 两侧都是 `5-15`（= 走了 `TextDocument` 内存缓存，修复没生效） |
-| 追加检查 | 再让 Agent 改成 `15-30` → **同一个** diff 标签原地刷新：右侧 `15-30`，左侧仍是 `5-15`（本轮累计基线） |
+| 追加检查<br>**前提：两次改动必须在同一轮对话内**（中间不插用户消息） | 再让 Agent 改成 `15-30` → **同一个** diff 标签原地刷新：右侧 `15-30`，左侧**仍是 `5-15`**（本轮累计基线） |
+
+> ⚠️ **这条期望值缺了前提，本次实测补上了：** 基线是**按轮**的。同一轮内连续改两次，左侧保持本轮动手前的基线不动
+> （实测 `15-30 → 15-50`：左 `15-30`、右 `15-50`，单标签原地刷新）；但**若中间插了一轮用户消息**，
+> `lib/host.js` 会把基线重置为「本轮动手前」的内容（实测跨轮 `15-25 → 15-30`：左 `15-25`、右 `15-30`，
+> 即左侧跟着前进了一格）。两种都不算缺陷，是设计如此 —— 但判读时别把跨轮结果当成失败。
+>
+> 另注：同一轮内的第二次改动可能被扩展的去重逻辑判定为「同一份帧」而跳过重新聚焦/定位
+> （右侧内容仍会刷新）。这是**平台无关的既知缺陷**，见验证报告 §5.2，与本分支的路径修复无关。
 
 ### 用例 3：#5 相对路径丢盘符
 
@@ -210,14 +255,18 @@ cd <clone 目录>
 npm test
 ```
 
-期望恰好两行：
+期望三行（**共 106 项**）：
 
 ```
 CONTROL TRUST SMOKE PASSED (53 checks)
+[dsh-bridge] mode=none
 WINDOWS SIM PASSED (53 checks)
 ```
 
-任何一行不是 `PASSED`，把完整输出发回来。
+> 中间那行是 `test/windows-sim.mjs` 的 `vscode` 桩在加载扩展时打印的，**不是失败也不是多余输出**。
+> 只要出现 `PASSED` 之外的字样（`FAILED` / 异常栈 / 非零退出码），把完整输出发回来。
+
+> **实测**：exit code 0 · node v24.21.0 · npm 11.19.0，两套各 53 项全过。
 
 ---
 
@@ -243,6 +292,23 @@ Invoke-RestMethod http://127.0.0.1:<DSH端口>/__dsh-vsceditor/state | ConvertTo
 ---
 
 ## 5. 回滚
+
+### 5.1 没有 git 的机器（tarball 解包装法）
+
+```powershell
+# 插件侧：先从 profile 里摘掉，再装回 main 版本的包
+& $dsh plugin --profile <Profile> remove dsh-vsceditor
+& $dsh plugin --profile <Profile> add dsh-vsceditor        # 或 add <指向 main checkout 的本地目录>
+# 扩展侧：删掉已装目录，再 Reload Window
+Remove-Item "$env:USERPROFILE\.vscode\extensions\dsh.dsh-bridge" -Recurse -Force
+```
+
+> 本次验证的现场记录（含 `dsh.cmd` 的完整路径与 PATH 前置）见验证报告 §8。
+
+回滚前建议先把 profile 元数据备份一份（本次验证备份在
+`%USERPROFILE%\.dsh\profile-backup-<时间戳>\`，含 `package.json` / `pnpm-lock.yaml` / `cordis.patch.yml`）。
+
+### 5.2 有 git 的机器
 
 ```powershell
 cd "$env:USERPROFILE\.dsh\plugins\dsh-vsceditor"
@@ -291,3 +357,26 @@ git checkout -- vscode-ext/dsh-bridge/package.json   # 还原 2.4-A 的临时改
 - Windows 文件系统的大小写不敏感是否与我们的假设一致
 
 另外：**#5 的 issue 正文是截断的**（818 字节，停在「VS Code 日志：」，报告者没贴日志），所以 #5 的根因是**从代码推出来的**，不是从日志读出来的。修复逻辑本身独立成立（相对路径必须解析），但对外回复时应如实说明这层证据差异。
+
+### 7.1 这四条缺口已被真机验证覆盖（2026-09-23）
+
+| 缺口 | 结论 |
+|---|---|
+| 真实 `vscode.diff` 标签的渲染与标题 | ✅ 人眼确认：标题 `DSH: config.lua ⟵ 修改前 \| 当前 ⟶`，内容可读（#5 / #6 两处） |
+| 真实 `TextDocument` 内存缓存行为 | ✅ 文件作为普通标签打开、`visibleEditors=1` 前提下，右侧仍显示新内容 → `dsh-now://` 绕开缓存成立 |
+| 真实盘符大小写下 `uri.fsPath` 的取值 | ✅ = **小写盘符** `c:`，与 host 的 `C:` 不同（正是 #4 的触发条件） |
+| Windows FS 大小写不敏感 | ✅ 真机探针 53/53：真实 NTFS 下小写拼写解析到同一目录（`dev+ino` 相同），`canonicalizeUnder` 能还原真实大小写 |
+
+**#5 的证据强度也随之升级**：从「代码推断」变成「真机实测复现」（相对路径调用后，帧内即为带盘符的绝对路径 + 标题为纯文件名）。
+
+仍有**未跑**的两项，与平台修复无关：`followWorkspaceOnly: true` 的端到端、内嵌 code-server 模式（本次只验了 `editorBackend: local`）。
+
+### 7.2 本次验证顺带发现的两个缺陷（与本分支无关）
+
+真机跑出一轮扩展侧帧级日志后，发现两个**在 `main` 上就存在**、且**与平台无关**的问题，已单独立项处理（另开分支 `fix/sse-reconnect-and-dedup`），不阻塞本分支合并：
+
+- **SSE 每 2.5s 重连的自维持循环**（`connectSSE()` 主动 `destroy()` 活流未标记被顶替者 → `error: aborted` → `scheduleReconnect()`）。
+  已被纯 Node 复现器在 **macOS 上同样复现**，证明非 Windows 特有。
+- **去重键碰撞**（`editKeyOf` 的 `i += 97` 抽样哈希对 <97 字符的串退化成首字符）→ 同一轮内「等长同首字符」的**不同**编辑会被误判为同一份帧。
+
+细节、复现脚本与平台无关性论证见 [`docs/windows-verification-report.md`](windows-verification-report.md) §5。
