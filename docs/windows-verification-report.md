@@ -462,7 +462,7 @@ $dsh = "$env:LOCALAPPDATA\dsh-studio\harness\node_modules\.bin\dsh.cmd"
 | `%USERPROFILE%\.vscode\extensions` 的加载与版本比对 | ✅ 已验证(扩展 0.5.0 由插件真实安装路径装入,`extInstalled` / `extUpToDate` 均 true) |
 | `followWorkspaceOnly` 真机端到端 | ⚠️ **未跑**(配置 `false`;纯函数层已由探针覆盖) |
 | 内嵌 code-server 模式 | ⚠️ **未测**(本次只验 `editorBackend: local`;`running: false`) |
-| 缺陷 A/B 的**修复** | ❌ 只定位根因,**未改代码** |
+| 缺陷 A/B 的**修复** | ✅ **已修**(分支 `fix/sse-reconnect-and-dedup`;回归用例 `test/bridge-regressions.mjs`,已做变异验证:退回旧行为报 8 条失败) |
 | 缺陷 A 在 macOS 上的复现 | ✅ **已跑**(归档时补测,见 §5.3;机制层面完全一致) |
 
 沿用手册提醒:**#5 的 issue 正文是截断的**(818 字节,停在「VS Code 日志:」),

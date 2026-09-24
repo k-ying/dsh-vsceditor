@@ -10,7 +10,16 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Real runners, not just injected win32 semantics: the three reports this
+      # suite grew out of (#4/#5/#6) only ever appeared on a real Windows desktop,
+      # and the suite's own win32 tests inject the platform. A native runner is
+      # what exercises the default `process.platform` branches (paths.js calls
+      # path.win32/path.posix from it) and real filesystem case-insensitivity.
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

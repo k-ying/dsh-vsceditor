@@ -373,10 +373,10 @@ git checkout -- vscode-ext/dsh-bridge/package.json   # 还原 2.4-A 的临时改
 
 ### 7.2 本次验证顺带发现的两个缺陷（与本分支无关）
 
-真机跑出一轮扩展侧帧级日志后，发现两个**在 `main` 上就存在**、且**与平台无关**的问题，已单独立项处理（另开分支 `fix/sse-reconnect-and-dedup`），不阻塞本分支合并：
+真机跑出一轮扩展侧帧级日志后，发现两个**在 `main` 上就存在**、且**与平台无关**的问题。两者已在分支 `fix/sse-reconnect-and-dedup` 修复，并补了回归用例 `test/bridge-regressions.mjs`（21 项，用真实 `extension.js` + 真实 HTTP SSE 服务端驱动，已做变异验证）；修复不阻塞本分支合并：
 
 - **SSE 每 2.5s 重连的自维持循环**（`connectSSE()` 主动 `destroy()` 活流未标记被顶替者 → `error: aborted` → `scheduleReconnect()`）。
-  已被纯 Node 复现器在 **macOS 上同样复现**，证明非 Windows 特有。
-- **去重键碰撞**（`editKeyOf` 的 `i += 97` 抽样哈希对 <97 字符的串退化成首字符）→ 同一轮内「等长同首字符」的**不同**编辑会被误判为同一份帧。
+  已被纯 Node 复现器在 **macOS 上同样复现**，证明非 Windows 特有。修法是所有 handler 先判 `state.sseReq === req`，并顺带给「已拿到端点却连不上」加了 2.5s → 30s 退避（发现阶段仍是固定 2.5s）。
+- **去重键碰撞**（`editKeyOf` 的 `i += 97` 抽样哈希对 <97 字符的串退化成首字符）→ 同一轮内「等长同首字符」的**不同**编辑会被误判为同一份帧。修法是直接记住上一帧的 (路径, 正文) 做精确比较。
 
 细节、复现脚本与平台无关性论证见 [`docs/windows-verification-report.md`](windows-verification-report.md) §5。
