@@ -202,7 +202,7 @@ agent 开始写某文件时该文件在编辑器里变为只读（状态栏有�
 | `trustedHosts` | string | `""` | 信任的主机（逗号分隔的裸 host 或 host:port）：除回环外允许访问控制接口的主机名。经反向代理/自定义域名访问 DSH 时必须声明；留空 = 仅回环。见第 8 节 |
 | `bridgeDebug` | boolean | `false` | 把扩展「打开 diff」的过程写入 `/tmp/dsh-bridge-debug.log`。经 SSE 即时下发，无需重启 DSH 或编辑器；排查「没弹 diff」时用 |
 
-写入即持久化到 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 节，重启后保留。也可以在 `~/.dsh/profiles/web/cordis.patch.yml` 的插件行加 `config:` 作为组合层 base（用户层覆盖 base 层）。
+写入即持久化、重启后保留，落点随 dsh 世代而不同：**0.1.x** 走插件的 settings 命名空间（用户层）；**0.2.x 起**写进该 profile 的 `cordis.patch.yml`——在既有 `- id: vsceditor` 行上更新 `config:`，没有就追加一条（顶层同 id 行是对组合层那一行的**覆盖**，不会重复挂载）。也可以在插件行里预先写 `config:` 作为组合层 base（用户层覆盖 base 层）。
 
 ### 5.6 快捷键/命令
 
