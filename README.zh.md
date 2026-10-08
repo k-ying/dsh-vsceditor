@@ -204,6 +204,22 @@ agent 开始写某文件时该文件在编辑器里变为只读（状态栏有�
 
 写入即持久化、重启后保留，落点随 dsh 世代而不同：**0.1.x** 走插件的 settings 命名空间（用户层）；**0.2.x 起**写进该 profile 的 `cordis.patch.yml`——在既有 `- id: vsceditor` 行上更新 `config:`，没有就追加一条（顶层同 id 行是对组合层那一行的**覆盖**，不会重复挂载）。也可以在插件行里预先写 `config:` 作为组合层 base（用户层覆盖 base 层）。
 
+> **从 0.1.x 升级上来的话**：那时设置存在 `~/.dsh/settings.yaml` 的 `dsh-vsceditor` 段里，而 dsh 0.2.x 的一次性迁移是按**段名**匹配插件条目的（我们的条目 id 是 `vsceditor`，段名是 `dsh-vsceditor`，对不上），所以那些值**不会自动搬过来**，插件会以默认设置启动。
+> **文件并没有丢** —— dsh 只是把它改名成了 `~/.dsh/settings.yaml.imported`。两种补法，任选其一：
+>
+> - **在设置卡片里重选一遍**（就这几个字段，最快）；
+> - 或把 `.imported` 里 `dsh-vsceditor:` 段的内容抄进上面那个位置：
+>
+>   ```yaml
+>   - id: vsceditor
+>     name: dsh-vsceditor
+>     config:
+>       editorBackend: local
+>       vscodePath: /Applications/Visual Studio Code.app
+>   ```
+>
+> 然后重启 dsh。
+
 ### 5.6 快捷键/命令
 
 VS Code 命令面板（`Cmd/Ctrl+Shift+P`）：

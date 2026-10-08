@@ -206,6 +206,22 @@ The settings live in the Settings → Plugins → "Embedded VS Code editor" **ta
 
 Writes persist and survive restarts; where they land depends on the dsh generation: on **0.1.x** they go through the plugin's settings namespace (user layer), on **0.2.x** into that profile's `cordis.patch.yml` — updating `config:` on the existing `- id: vsceditor` row, or appending one when there is none (a top-level row with the same id **overrides** the composition row; it does not mount the plugin twice). You can also set `config:` on the plugin row up front as a composition-level base (the user layer overrides it).
 
+> **Upgrading from 0.1.x?** Your settings used to live in the `dsh-vsceditor` section of `~/.dsh/settings.yaml`. The one-time migration in dsh 0.2.x matches a section to a plugin entry **by section name**, and ours differ (section `dsh-vsceditor`, entry id `vsceditor`), so those values are **not carried over** — the plugin starts on its defaults.
+> **Nothing was deleted**: dsh simply renamed the file to `~/.dsh/settings.yaml.imported`. Either fix works:
+>
+> - **Re-pick them in the settings card** (there are only a handful of fields, so this is quickest); or
+> - copy the `dsh-vsceditor:` section from `.imported` into the row shown above:
+>
+>   ```yaml
+>   - id: vsceditor
+>     name: dsh-vsceditor
+>     config:
+>       editorBackend: local
+>       vscodePath: /Applications/Visual Studio Code.app
+>   ```
+>
+> then restart dsh.
+
 ### 5.6 Shortcuts / commands
 
 In the VS Code command palette (`Cmd/Ctrl+Shift+P`):
