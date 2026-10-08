@@ -5,6 +5,8 @@
 //   unit: config invariants (schema keys == CONFIG_DEFAULTS keys)
 //   unit: manifest invariants (peer range admits every supported dsh build;
 //         the client registers both the legacy and the 0.2+ settings slot)
+//   unit: dsh-generation adapters (deployment trusted hosts come from
+//         `webRuntime`; the plugin finds its own configurable profile entry)
 //   integration: real HTTP requests against apply()'s registered routes
 // (autoStart:false so no code-server is spawned)
 
@@ -167,6 +169,41 @@ for (const unsupported of ["0.3.0-0", "0.3.0"]) {
 const clientSource = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
 check(clientSource.includes("inject('settings.plugins.tab'"), "client registers the 0.2+ settings tab slot");
 check(clientSource.includes("inject('settings.plugin.item'"), "client keeps the legacy settings card slot");
+
+// ── unit: dsh-generation adapters ──
+// Both of these were SILENT failures in the field, which is why they are pinned
+// here by name rather than by behaviour-of-the-whole-plugin.
+// 1. The deployment's trusted-host list lives on the `webRuntime` service
+//    (dsh-web-app provides { lanAddresses, trustedHosts }). The plugin used to
+//    read `connection`, where the field has never existed — so the advertised
+//    "union with DSH's own trustedHosts" was a no-op on every version.
+const runtimeCtx = (value) => ({ get: (key) => (key === "webRuntime" ? value : undefined) });
+check(plugin.deploymentTrustedHosts(runtimeCtx({ trustedHosts: ["a.example.com", " b.example.com "] })).join(",") === "a.example.com,b.example.com",
+  "deploymentTrustedHosts reads webRuntime and trims entries");
+check(plugin.deploymentTrustedHosts({ get: (key) => (key === "connection" ? { trustedHosts: ["wrong.example.com"] } : undefined) }).length === 0,
+  "deploymentTrustedHosts does not read `connection` (the field is not there)");
+check(plugin.deploymentTrustedHosts(runtimeCtx({})).length === 0, "deploymentTrustedHosts tolerates a service without the field");
+check(plugin.deploymentTrustedHosts(runtimeCtx({ trustedHosts: "nope" })).length === 0, "deploymentTrustedHosts ignores a non-array list");
+check(plugin.deploymentTrustedHosts({ get: () => { throw new Error("boom"); } }).length === 0, "deploymentTrustedHosts never throws");
+check(plugin.deploymentTrustedHosts(undefined).length === 0, "deploymentTrustedHosts tolerates a missing ctx");
+
+// 2. On dsh 0.2.x the settings namespace is gone, so the plugin persists through
+//    its own profile entry — which it has to find among every configurable row.
+const ownRows = [
+  { options: { id: "include:other", name: "other-plugin" } },
+  { options: { id: "include:vsceditor", name: "dsh-vsceditor" } },
+];
+check(plugin.pickOwnEntry(ownRows, "dsh-vsceditor") === ownRows[1], "pickOwnEntry matches the row by module name");
+check(plugin.pickOwnEntry([{ options: { id: "include:vsceditor" } }], "dsh-vsceditor").options.id === "include:vsceditor",
+  "pickOwnEntry falls back to the row id's final segment (namespaced + shortened)");
+check(plugin.pickOwnEntry([{ options: { id: "vsceditor-fork" } }, { options: { id: "include:vsceditor" } }], "dsh-vsceditor").options.id === "include:vsceditor",
+  "pickOwnEntry does not claim an unrelated id that merely contains the name");
+check(plugin.pickOwnEntry([{ options: { name: "dsh-vsceditor" } }, { options: { id: "include:vsceditor" } }], "dsh-vsceditor").options.name === "dsh-vsceditor",
+  "pickOwnEntry prefers the exact module name over the id fallback");
+check(plugin.pickOwnEntry(ownRows, "absent-plugin") === undefined, "pickOwnEntry returns undefined when the plugin has no row");
+check(plugin.pickOwnEntry(undefined, "dsh-vsceditor") === undefined, "pickOwnEntry tolerates a missing entry list");
+check(plugin.configSchema.meta !== undefined && typeof plugin.configSchema.toJSON === "function",
+  "the hand-rolled schema keeps the schemastery-compatible surface dsh reads");
 
 // ── integration: drive the real routes ──
 const routes = [];

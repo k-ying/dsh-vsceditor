@@ -204,7 +204,7 @@ The settings live in the Settings → Plugins → "Embedded VS Code editor" **ta
 | `trustedHosts` | string | `""` | Comma separated bare authorities (`host` or `host:port`) allowed to reach the control routes in addition to loopback. Needed when you reach DSH through a reverse proxy or custom domain; empty = loopback only. See 8 |
 | `bridgeDebug` | boolean | `false` | Append the extension's diff-open trace to `/tmp/dsh-bridge-debug.log`. Pushed to the extension over SSE, so it takes effect immediately without restarting DSH or the editor; use it when a diff does not show up |
 
-Writes persist to the `dsh-vsceditor` section of `~/.dsh/settings.yaml` and survive restarts. You can also add `config:` to the plugin row in `~/.dsh/profiles/web/cordis.patch.yml` as a composition-level base (user layer overrides base layer).
+Writes persist and survive restarts; where they land depends on the dsh generation: on **0.1.x** they go through the plugin's settings namespace (user layer), on **0.2.x** into that profile's `cordis.patch.yml` — updating `config:` on the existing `- id: vsceditor` row, or appending one when there is none (a top-level row with the same id **overrides** the composition row; it does not mount the plugin twice). You can also set `config:` on the plugin row up front as a composition-level base (the user layer overrides it).
 
 ### 5.6 Shortcuts / commands
 
