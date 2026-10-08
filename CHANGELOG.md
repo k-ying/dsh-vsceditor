@@ -2,6 +2,24 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.4] - 2026-10-08
+
+### 修复（dsh 0.2.x 上装不上、设置界面不显示）
+
+- **peer 范围挡住了整个 dsh 0.2.x**：`peerDependencies` 原先上界停在 `<0.2.0-0`。dsh 装载时会拿**每一条** `@deepseek-ai/dsh-*` 的 peer 声明与**当前运行时版本**做 `semver.satisfies(runtimeVersion, range, { includePrerelease: true })`（见 `dsh-app-boot`），不在范围内就**直接拒绝安装**，只留一条 exact-version 豁免的指引。Tauri 桌面壳自带的那份 dsh 已是 `0.2.1-alpha.1`，于是从 `dsh-market` 安装被拒（`Plugin dsh-vsceditor@0.5.3 is incompatible with dsh 0.2.1-alpha.1`）。现在追加 `>=0.2.0-0 <0.3.0-0`：0.0.x/0.1.x 与 0.2.x 都能装，0.3.x 仍被拦住
+- **设置界面挂在了一个已消失的插槽上**：0.2.1 起 `settings.plugin.item` 不再声明，第三方设置改为「设置 → 插件」下的标签页 `settings.plugins.tab`（`dsh-market` 自己也注册在那里）。原先的设置卡片只挂在旧插槽上，在 0.2.x 里**既不报错也不显示**。现在两条注册并存：旧插槽渲染可折叠卡片（外层 `<li>`），新插槽渲染常显的标签面板（外层 `<div>`、静态头部、无折叠按钮与箭头）。`slots.inject` 对未声明的插槽只是挂起等待、不会报错，所以两代壳各自只会命中一条，不会重复渲染
+- **0.2.1-alpha.1 核对结论（活体注册表，不是读文档）**：宿主侧契约仍然完好 —— 注入的 `webServer`/`subprocess`/`timer`/`agents` 四个服务都在，监听的 `tools/pre-execute`/`tools/result`/`agent/created`/`agent/inbox/claimed` 四个事件都在且回调签名一致，`ToolExecutionInput` 的 `name`/`arguments`/`agent` 与 `ToolExecutionResult.isError` 也都还在；客户端插槽 `conversation.view`（编辑器标签页）同样还在。所以这次是**版本范围 + 一处插槽名**的兼容问题，不是协议断代。`@deepseek-ai/dsh-client-runtime` 这个 peer 名在两代 dsh 的磁盘上都不存在，它只是「客户端运行时 API 契约」的声明名，dsh 按名字前缀比对版本，并不要求真的装上该包
+
+### 测试
+
+- `test/control-trust-smoke.mjs` 新增一组「manifest 不变量」（9 项，53 → 62）：用最小实现的 semver 精度比较（语义等价于 dsh 的 `includePrerelease: true`，从而保持**零依赖**）断言 peer 范围**接受** `0.1.5-rc.1` / `0.2.0-0` / `0.2.0-rc.2` / `0.2.1-alpha.1` / `0.2.99`、**拒绝** `0.3.0-0` / `0.3.0`，并断言客户端**同时**保留新旧两条设置插槽注册。**已做变异验证**：把 peer 范围退回旧值报 4 条失败，拿掉 0.2+ 插槽注册报 1 条失败
+- `npm test` = **62 + 53 + 21 = 136 项**
+
+### 升级须知
+
+- 插件版本 `0.5.3 → 0.5.4`；`vscode-ext/dsh-bridge` 未改动，扩展版本保持 `0.5.3`（major.minor 仍是 `0.5`，符合「插件与扩展版本 major.minor 必须一致」的约定，因此不会触发扩展重拷）
+- 在 0.2.x 起的 dsh 上，设置入口由「设置 → 插件 → 插件配置」的卡片变为「设置 → 插件」下的标签页；字段与行为完全不变
+
 ## [0.5.3] - 2026-09-25
 
 ### 修复（Windows 桌面模式的路径处理，#4 / #5 / #6）
