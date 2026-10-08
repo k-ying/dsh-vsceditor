@@ -2,6 +2,33 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.6] - 2026-10-08
+
+### 修复（dsh 0.2.x 上设置不持久化）
+
+- **`settings.register` 在 dsh 0.2.x 已被删除**：插件原来直接调 `sctx.settings.register(ns, schema, {base})`（0.1.x 的 API，返回带 `get/watch/update` 的 scope），在 0.2.1 上抛 `sctx.settings.register is not a function` → 被 catch → `settingsScope` 为空 → 设置面板顶出「⚠️ 设置服务不可用，以上改动仅本次运行有效」，**任何改动重启即丢**
+  现在按能力分流：`typeof sctx.settings.register === 'function'` 时走 0.1.x 老路；否则改为写**插件自己的 profile 条目** —— `configEditor.edit(entry, change)`，它负责校验、落盘 profile patch 并 reconcile（`patchReload: live`）。写盘前先过一遍 `configSchema`，坏值必须被拒绝，而不是落进用户的配置文件
+- **0.2.x 的 settings 服务只投影 entry 的 `Config` schema，且只接受 `meta.volatile` 字段**（`volatileForm()`），而本插件是零依赖、手搓 schemastery 兼容外形，没有 `meta.volatile` → 即使注册成功也拿不到可写表单。所以这里**不导出 `Config`**：cordis 会拿 `runtime.Config` 跑 `resolveConfig()`、写回时还会调 `Config.simplify`，手搓 schema 未必满足，风险是插件**整个加载失败**；而 `configEditor` 走的是组合后的 row，`resolveConfig` 对没有 `Config` 的插件是直通
+
+### 修复（部署层 trustedHosts 从未生效）
+
+- 插件一直从 **`connection`** 服务读部署层的 `trustedHosts`，但该字段在 **`webRuntime`** 上（`dsh-web-app` 用 `ctx.provide("webRuntime", { lanAddresses, trustedHosts })` 注册，0.1.5 与 0.2.1 都是）。因为外面套了 `try/catch` + `Array.isArray` 防御，失败是**静默**的 —— 0.5.2 起标称的「自动并集 DSH 部署层 `trustedHosts`」**在写下那天起就没生效过**
+- 现在改从 `webRuntime` 读。插件自身的 `trustedHosts` 设置不受影响
+
+### 测试
+
+- `test/control-trust-smoke.mjs` 新增「dsh-generation adapters」13 项（62 → 75）：
+  - `deploymentTrustedHosts`：必须读 `webRuntime` 且裁剪空白；**不得**读 `connection`（反向断言）；非数组忽略；服务抛错不炸；缺 ctx 不炸
+  - `pickOwnEntry`：按模块名精确匹配；退回比较 **id 的最后一段**（`include:vsceditor` ↔ 包名 `dsh-vsceditor`）；**不误认领** `vsceditor-fork` 这类仅含名称的无关行；空列表不炸
+- **变异验证**（均逐字节还原）：退回读 `connection` 报 2 条失败；退回子串匹配报 1 条失败
+- `npm test` = **75 + 25 + 53 + 21 = 174 项**
+
+### 升级须知
+
+- 插件版本 `0.5.5 → 0.5.6`；`vscode-ext/dsh-bridge` 未改动，扩展版本保持 `0.5.3`（major.minor 仍是 `0.5`）
+- **dsh 0.2.x 上的设置落点**：写进该 profile 的 `cordis.patch.yml` —— 在既有 `- id: vsceditor` 行上更新 `config:`，没有就追加一条。顶层同 id 行是对组合层那一行的**覆盖**，不会重复挂载
+- 装上本版后**需要重启 dsh** 才能生效（改的是宿主半的代码）
+
 ## [0.5.5] - 2026-10-08
 
 ### 修复（0.1.x 上设置界面被渲染两遍）
