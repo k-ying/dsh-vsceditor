@@ -296,7 +296,7 @@ Run the test suite (no dependencies — straight from source; also runs in CI):
 npm test
 ```
 
-Two cases: `test/control-trust-smoke.mjs` (control-route fence, ack normalization, config invariants) and `test/windows-sim.mjs` (Windows desktop-mode path behaviour). The latter **forces win32 semantics, stubs `vscode` and loads the unmodified real `extension.js`**, so the Windows reports reproduce on macOS/Linux too; its limits and the on-device checklist live in [`docs/windows-path-issues.md`](docs/windows-path-issues.md).
+Four cases: `test/control-trust-smoke.mjs` (control-route fence, ack normalization, config invariants, manifest invariants), `test/client-slots-sim.mjs` (a stubbed module loader, DOM and slot service drive the unmodified real `lib/client.js`, asserting the settings surface registers exactly once under every slot shape), `test/windows-sim.mjs` (Windows desktop-mode path behaviour) and `test/bridge-regressions.mjs` (the SSE reconnect loop and the edit-frame dedup key, against a real HTTP SSE server). `windows-sim.mjs` **forces win32 semantics, stubs `vscode` and loads the unmodified real `extension.js`**, so the Windows reports reproduce on macOS/Linux too; its limits and the on-device checklist live in [`docs/windows-path-issues.md`](docs/windows-path-issues.md).
 
 ### Versioning rule
 

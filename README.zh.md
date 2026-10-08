@@ -294,7 +294,7 @@ dsh --profile web --dump-config
 npm test
 ```
 
-两个用例：`test/control-trust-smoke.mjs`（控制面围栏 + ack + 配置不变量）、`test/windows-sim.mjs`（Windows 桌面模式的路径行为）。后者**强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，因此在 macOS/Linux 上也能复现 Windows 报告；边界与真机验证清单位于 [`docs/windows-path-issues.md`](docs/windows-path-issues.md)。
+四个用例：`test/control-trust-smoke.mjs`（控制面围栏 + ack + 配置不变量 + manifest 不变量）、`test/client-slots-sim.mjs`（桩化模块加载器 / DOM / slots 服务，驱动未修改的真实 `lib/client.js`，断言任何插槽形态下设置界面都只注册一次）、`test/windows-sim.mjs`（Windows 桌面模式的路径行为）、`test/bridge-regressions.mjs`（SSE 重连循环与编辑帧去重键，对真实 HTTP SSE 服务端）。`windows-sim.mjs` **强制 win32 语义 + 桩化 `vscode` + 加载未修改的真实 `extension.js`**，因此在 macOS/Linux 上也能复现 Windows 报告；边界与真机验证清单位于 [`docs/windows-path-issues.md`](docs/windows-path-issues.md)。
 
 ### 版本号规范
 
