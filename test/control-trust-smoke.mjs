@@ -3,9 +3,12 @@
 //         socket origin / declared trusted hosts) + parseTrustedHosts
 //   unit: ackRecord normalization (the panel's only evidence a diff opened)
 //   unit: config invariants (schema keys == CONFIG_DEFAULTS keys)
+//   unit: manifest invariants (peer range admits every supported dsh build;
+//         the client registers both the legacy and the 0.2+ settings slot)
 //   integration: real HTTP requests against apply()'s registered routes
 // (autoStart:false so no code-server is spawned)
 
+import { readFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 
@@ -112,6 +115,58 @@ check(plugin.configSchema({ bridgeDebug: true }).bridgeDebug === true, "bridgeDe
 let bridgeDebugRejected = false;
 try { plugin.configSchema({ bridgeDebug: "yes" }); } catch (e) { bridgeDebugRejected = true; }
 check(bridgeDebugRejected, "bridgeDebug rejects a non-boolean");
+
+// ── unit: manifest invariants ──
+// dsh refuses to load a plugin whose `@deepseek-ai/dsh-*` peerDependencies do not
+// admit the RUNNING version: dsh-app-boot evaluates every such entry with
+// `semver.satisfies(runtimeVersion, range, { includePrerelease: true })` and
+// reports "Plugin X is incompatible with dsh Y" (install rejected). With
+// `includePrerelease`, that reduces to plain precedence comparison — the helpers
+// below implement exactly that so the suite stays dependency-free.
+// Regression: the range used to stop at `<0.2.0-0`, so every dsh 0.2.x build
+// (including the 0.2.1-alpha.1 that ships with the desktop shell) was refused.
+function parseVersion(text) {
+  const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(text);
+  if (!m) throw new Error(`unparsable version: ${text}`);
+  return { parts: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split(".") : [] };
+}
+function compareVersions(a, b) {
+  for (let i = 0; i < 3; i++) if (a.parts[i] !== b.parts[i]) return a.parts[i] < b.parts[i] ? -1 : 1;
+  if (a.pre.length === 0 || b.pre.length === 0) return a.pre.length === b.pre.length ? 0 : a.pre.length === 0 ? 1 : -1;
+  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+    const x = a.pre[i], y = b.pre[i];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    const numericX = /^\d+$/.test(x), numericY = /^\d+$/.test(y);
+    if (numericX && numericY) { if (Number(x) !== Number(y)) return Number(x) < Number(y) ? -1 : 1; }
+    else if (numericX !== numericY) return numericX ? -1 : 1;
+    else if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+function admits(range, version) {
+  const v = parseVersion(version);
+  return range.split("||").some((clause) => clause.trim().split(/\s+/).every((term) => {
+    const m = /^(>=|<=|>|<|=)?(.+)$/.exec(term);
+    const c = compareVersions(v, parseVersion(m[2]));
+    return m[1] === ">=" ? c >= 0 : m[1] === ">" ? c > 0 : m[1] === "<=" ? c <= 0 : m[1] === "<" ? c < 0 : c === 0;
+  }));
+}
+const declaredPeerRange = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+  .peerDependencies["@deepseek-ai/dsh-client-runtime"];
+for (const supported of ["0.1.5-rc.1", "0.2.0-0", "0.2.0-rc.2", "0.2.1-alpha.1", "0.2.99"]) {
+  check(admits(declaredPeerRange, supported), `peer range admits dsh ${supported} (range=${declaredPeerRange})`);
+}
+for (const unsupported of ["0.3.0-0", "0.3.0"]) {
+  check(!admits(declaredPeerRange, unsupported), `peer range still rejects dsh ${unsupported}`);
+}
+
+// A client contribution aimed at a slot the host no longer declares is silently
+// invisible (no error, no UI): 0.2.1 replaced `settings.plugin.item` with
+// `settings.plugins.tab`. `slots.inject` on an undeclared slot just waits, so
+// both registrations must stay — dropping either one breaks a shell generation.
+const clientSource = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+check(clientSource.includes("inject('settings.plugins.tab'"), "client registers the 0.2+ settings tab slot");
+check(clientSource.includes("inject('settings.plugin.item'"), "client keeps the legacy settings card slot");
 
 // ── integration: drive the real routes ──
 const routes = [];

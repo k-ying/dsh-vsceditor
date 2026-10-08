@@ -51,6 +51,7 @@ Message semantics follow ACP `session/update`: `edit {path, oldText, newText, fi
 ## 3. Requirements
 
 - DeepSeek Harness (dsh) web profile (this plugin is a profile bundle mounted on the host plane)
+- dsh 0.0.x – 0.2.x: `peerDependencies` declares these lines, and dsh compares it against the **running** runtime version — a plugin outside the range is refused outright at install time. The 0.2.x line was checked against **0.2.1-alpha.1** (the build the Tauri desktop shell ships): host services, events and argument shapes all match
 - macOS or Linux (Windows untested; code-server has no official Windows build)
 - **Embedded mode**: a code-server installation (see 4.2); **local VS Code mode**: desktop VS Code. You need at least one of the two — **the plugin works without code-server, but only in local VS Code mode**
 
@@ -188,7 +189,7 @@ When the agent starts writing a file, that file becomes read-only in the editor 
 
 ### 5.5 Settings card
 
-Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" (collapsed by default, click the header to expand):
+On dsh 0.2 and later this is the Settings → Plugins → "Embedded VS Code editor" tab; on 0.1.x and earlier it is the Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" card (collapsed by default, click the header to expand). Both are the same settings surface with identical keys:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
