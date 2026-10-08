@@ -49,6 +49,7 @@
 ## 3. 前置要求
 
 - DeepSeek Harness（dsh）web profile（本插件是 profile bundle，挂在 host 层）
+- dsh 0.0.x – 0.2.x：`package.json` 的 `peerDependencies` 声明了这几条版本线，dsh 会拿它和**当前运行时版本**比对，不在范围内的插件**会被直接拒绝安装**。0.2.x 线已在 **0.2.1-alpha.1**（Tauri 桌面壳自带的那份）上核对过宿主的服务、事件与参数形状
 - macOS 或 Linux（Windows 未测试；code-server 官方不支持 Windows 直装）
 - **内嵌模式**：需要一个 code-server 安装（见 4.2）；**本机 VS Code 模式**：需要桌面版 VS Code。两者至少满足其一——**不装 code-server 也能用插件，只是只能用本机 VS Code 模式**
 
@@ -186,7 +187,7 @@ agent 开始写某文件时该文件在编辑器里变为只读（状态栏有�
 
 ### 5.5 设置卡片
 
-「设置 → 插件 → 插件配置 → 内嵌 VSCode 编辑器」（默认折叠，点标题展开）：
+dsh 0.2 起在「设置 → 插件 → 内嵌 VSCode 编辑器」标签页；0.1.x 及更早是「设置 → 插件 → 插件配置 → 内嵌 VSCode 编辑器」卡片（默认折叠，点标题展开）。两处是同一份设置界面，字段完全一致：
 
 | 配置项 | 类型 | 默认 | 说明 |
 |---|---|---|---|
