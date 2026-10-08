@@ -189,7 +189,7 @@ When the agent starts writing a file, that file becomes read-only in the editor 
 
 ### 5.5 Settings card
 
-On dsh 0.2 and later this is the Settings → Plugins → "Embedded VS Code editor" tab; on 0.1.x and earlier it is the Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" card (collapsed by default, click the header to expand). Both are the same settings surface with identical keys:
+The settings live in the Settings → Plugins → "Embedded VS Code editor" **tab** (that slot has existed since dsh 0.1.5). Only on an older shell that lacks the slot does it fall back to the collapsible Settings → Plugins → Plugin Configuration → "Embedded VS Code editor" card (click the header to expand). Both are the same settings surface with identical keys:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
