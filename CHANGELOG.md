@@ -2,6 +2,25 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.5] - 2026-10-08
+
+### 修复（0.1.x 上设置界面被渲染两遍）
+
+- **设置插槽仲裁**：0.5.4 为兼容 dsh 0.2.x，把设置界面**同时**注册进了两个插槽，前提是「0.1.x 只声明 `settings.plugin.item`、0.2.x 只声明 `settings.plugins.tab`，各命中一条」。**这个前提是错的** —— 0.1.x 两个都声明：它的 `settings.plugins.tab` 里有一个内建的 "configurable" 标签页，而 `settings.plugin.item` 正是挂在该标签页下的卡片。于是 0.1.x 上「设置 → 插件」会**同时**出现一个「内嵌 VSCode 编辑器」标签页**和**「插件配置」里的同一张卡片，同一份设置渲染两遍
+  现在**标签页优先**：`settings.plugin.item` 只作为「连 `settings.plugins.tab` 都没有的更老壳」的兜底，并且标签页一旦出现就把已注册的卡片撤回 —— 任何声明顺序、任何壳上都**恰好一份**设置界面
+- 实测确认：`settings.plugins.tab` 自 **dsh 0.1.5** 起就已声明（`dsh-client-ui-settings-plugins` 把它作为 `settings.section` 的子插槽，`dsh-client-ui-settings-plugin-inventory` 也注册在里面）；0.2.1 只声明它，`settings.plugin.item` 在 0.2.1 的运行时代码里已不存在。README 的「设置入口」描述据此更正
+
+### 测试
+
+- 新增 `test/client-slots-sim.mjs`（25 项）：stub `window.__ModuleLoader__` + 桩化 DOM + 一个实现了 `slots.inject` / `slots.register` 真实生命周期的假 slots 服务，加载**未修改的真实** `lib/client.js`，按六种形态断言「**恰好注册一次**设置界面」—— 0.1.x 双插槽、0.2.x 单插槽、只有卡片的老壳、**声明顺序颠倒**（卡片先到、标签页后到必须撤回卡片）、延迟声明、插槽塌缩与重新声明
+- `npm test` = **62 + 25 + 53 + 21 = 161 项**
+- **变异验证**（三处，均逐字节还原）：退回「两条都无条件注册」报 3 条失败；只去掉「撤回」报 2 条失败（正对着声明顺序那条）；去掉兜底卡片报 4 条失败
+
+### 升级须知
+
+- 插件版本 `0.5.4 → 0.5.5`；`vscode-ext/dsh-bridge` 未改动，扩展版本保持 `0.5.3`（major.minor 仍是 `0.5`）
+- 若你在 0.5.4 上见过设置界面出现两份，本版修的就是它
+
 ## [0.5.4] - 2026-10-08
 
 ### 修复（dsh 0.2.x 上装不上、设置界面不显示）
