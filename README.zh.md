@@ -50,7 +50,7 @@
 
 - DeepSeek Harness（dsh）web profile（本插件是 profile bundle，挂在 host 层）
 - dsh 0.0.x – 0.2.x：`package.json` 的 `peerDependencies` 声明了这几条版本线，dsh 会拿它和**当前运行时版本**比对，不在范围内的插件**会被直接拒绝安装**。0.2.x 线已在 **0.2.1-alpha.1**（Tauri 桌面壳自带的那份）上核对过宿主的服务、事件与参数形状
-- macOS 或 Linux（Windows 未测试；code-server 官方不支持 Windows 直装）
+- macOS、Linux 或 Windows —— **本机 VS Code 模式已在 Windows 上真机验证**（2026-09-23，Windows 10 Pro 22H2 + VS Code 1.138.0，#4/#5/#6 三条全部通过；报告见 [`docs/windows-verification-report.md`](docs/windows-verification-report.md)）。**Windows 上的 code-server 后端属实验性** —— code-server 官方不发布 Windows 构建（见 4.2 的 Windows 一节）
 - **内嵌模式**：需要一个 code-server 安装（见 4.2）；**本机 VS Code 模式**：需要桌面版 VS Code。两者至少满足其一——**不装 code-server 也能用插件，只是只能用本机 VS Code 模式**
 
 ## 4. 安装
