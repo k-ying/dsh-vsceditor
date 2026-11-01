@@ -136,6 +136,24 @@ function applyTo(initiallyDeclared) {
   check(tabEntry !== undefined && typeof tabEntry.options.label === "function", "0.1.x shape: the tab label is a thunk (re-resolved on locale change)");
 }
 
+// ── issue #13: the View tab label must resolve to TEXT ──
+// dsh 0.2.1-rc.4+ measures each tab label with `for (const glyph of label)`
+// (`labelNeedsTooltip`, client-ui-conversation). A React element is not
+// iterable -> TypeError -> the slot error boundary abdicates the WHOLE
+// `conversation.session.header`, so the session top bar (title, actions and
+// the tab row itself) disappears until reload. The slot contract is
+// `string | (() => string)`: keep the thunk (it is re-resolved per projection
+// so the label follows the active locale), but it must return a string.
+{
+  const h = applyTo(["conversation.view"]);
+  const view = h.active("conversation.view")[0];
+  check(view !== undefined, "view label: conversation.view is registered");
+  const declared = view && view.options.label;
+  check(typeof declared === "function", "view label: registered as a thunk (re-resolved per projection)");
+  const resolved = typeof declared === "function" ? declared() : declared;
+  check(typeof resolved === "string", `view label: resolves to a string, not a React node (got ${typeof resolved})`);
+}
+
 // ── shape B: dsh 0.2.x declares only the tab ──
 {
   const h = applyTo(["conversation.view", "settings.plugins.tab"]);
