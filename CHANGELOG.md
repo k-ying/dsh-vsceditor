@@ -2,6 +2,28 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.7] - 2026-11-01
+
+### 修复（dsh 0.2.1-rc.4+ 上会话顶栏整条消失）
+
+- **根因是「label 返回 React 元素」违反插槽契约**：`conversation.view` 的 `label` 契约是 `string | (() => string)`，而插件从 rc.3 时代起让它返回一个 `<span>`（用来画彩色状态点，并兼职 2.5 秒轮询）。dsh **0.2.1-rc.4** 起核心给 tab 量宽改成 `for (const glyph of label)`，元素不可迭代 → 抛 `TypeError: label is not iterable` → `SlotErrorBoundary` 把整条 `conversation.session.header` **abdicate** 掉，顶栏（标题 / 按钮 / tab 行）整条消失，只剩约 20px 空白带；刷新才短暂恢复，随后同一路径再崩。**rc.3 没有这段代码，所以这是 rc.4 引入的回归**，触发条件是本插件违约的 label
+- **label 回归纯文本**，每次投影重新求值（切界面语言不用重新注册）。删掉兼任轮询的 `TabLabel` 组件 —— 让装饰性元素承担关键职责，正是这次事故的形态；轮询改由 `startTabPoller()` 独立管理，不再依赖 tab 是否挂载
+- **状态点改由伪元素绘制**：核心的 `.tabLabel` 是 `display:block`，行内伪元素必然被挤到下一行；而 `.tab::after` 已被核心占用画激活下划线，不能抢占。所以改用 `::before` + 绝对定位画在按钮**右外侧**（`.viewTabs` 有 32px 间距），不参与布局、不换行、也不覆盖下划线
+- **打标不再依赖网络**：每秒重试且先用默认色，dsh 重启后 1 秒内出现；找不到按钮就静默降级为纯文字，绝不抛错
+- **留下排查抓手**：`<html data-dsh-vsced-diag>` 记录插件实际看到的 tab 文本与匹配结果（只在值变化时写，平时零开销）
+
+### 测试
+
+- `test/client-slots-sim.mjs` 新增「view label 必须解析为字符串」（25 → 28 项），**已做变异验证**：把 label 改回数组包元素，该断言立刻失败
+- `npm test` = **75 + 28 + 53 + 21 = 177 项**
+
+### 升级须知
+
+- 插件版本 `0.5.6 → 0.5.7`；`vscode-ext/dsh-bridge` 未改动，扩展版本保持 `0.5.3`（major.minor 仍是 `0.5`）
+- 这是**客户端**改动：装上后刷新页面即生效，不需要重启 dsh（重启也无害）
+- **dsh 0.2.1-rc.4 / rc.5 用户务必升级到本版**，否则顶栏会因上述回归整条消失
+- 上游 `labelNeedsTooltip` 缺少类型守卫的问题仍建议核心侧修复（第三方插件的非字符串 label 不该能吞掉整条顶栏）；本版**不依赖**该修复，也未附带任何修改 dsh 核心的补丁
+
 ## [0.5.6] - 2026-10-08
 
 ### 修复（dsh 0.2.x 上设置不持久化）
