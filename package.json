@@ -36,7 +36,8 @@
     "test": "node test/control-trust-smoke.mjs && node test/client-slots-sim.mjs && node test/windows-sim.mjs && node test/bridge-regressions.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "dsh": ">=0.1.0-rc.1 <0.3.0-0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.1 <0.2.0-0 || >=0.2.0-0 <0.3.0-0"
