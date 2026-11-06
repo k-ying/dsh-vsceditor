@@ -40,6 +40,22 @@ check(gate(req({ host: "evil.example:3080", origin: "http://evil.example:3080" }
 check(gate(req({ host: "evil.example:3080" })) === false, "domain Host without Origin rejected");
 check(gate(req({ host: "127.0.0.1:3080", "sec-fetch-site": "cross-site" })) === false, "sec-fetch-site cross-site rejected");
 check(gate(req({ host: "127.0.0.1:3080", origin: "http://evil.example" })) === false, "mismatched Origin rejected");
+// The Electron desktop shell serves its page from a custom scheme, so every
+// mutation arrives cross-origin; before this was accepted, Restart / save /
+// toggle all 403'd in the desktop window while GETs kept working.
+check(gate(req({ host: "127.0.0.1:3080", origin: "dsh-app://app" }), true) === true,
+  "desktop shell origin (dsh-app://app) may mutate over loopback");
+check(gate(req({ host: "127.0.0.1:3080", origin: "dsh-app://app", "sec-fetch-site": "cross-site" }), true) === true,
+  "desktop shell origin allowed even when the shell proxy marks it cross-site");
+check(gate(req({ host: "127.0.0.1:3080", origin: "tauri://localhost" }), true) === true,
+  "any non-http(s) app origin is accepted (shell may rename its scheme)");
+check(gate(req({ host: "127.0.0.1:3080", origin: "dsh-app://app" },
+  { remoteAddress: "192.168.1.9", localAddress: "192.168.1.5" }), true) === false,
+  "desktop shell origin from a non-loopback socket rejected");
+check(gate(req({ host: "127.0.0.1:3080", origin: "null" }), true) === false,
+  "opaque 'null' origin still rejected (file: / sandboxed iframe)");
+check(gate(req({ host: "127.0.0.1:3080", origin: "http://127.0.0.1:9999" }), true) === false,
+  "an http origin from another port still rejected");
 check(gate(req({})) === false, "missing Host rejected");
 check(gate(req({ host: "deadbeef:3080" })) === false, "bare hex word is not an IP literal");
 
