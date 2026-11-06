@@ -2,6 +2,21 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复（桌面窗口里重启报 403 · 重启后编辑器连不上）
+
+- **重启按钮仍然 403 的真因**：桌面壳把页面的请求用自己的代理转发，**丢掉了 `Origin` 头**（但保留了 `Sec-Fetch-Site: none`）。0.5.8 只放行了"非 http(s) 来源"，对"根本没有来源"的写操作仍然拒绝。现在围栏接受「无 `Origin` + `Sec-Fetch-Site: none` + 回环 socket」的写操作 —— 网页无法设置这个头（浏览器只会给 same-origin / cross-site），普通本地脚本两个头都不带，仍然被拒
+- **重启后编辑器卡在 "Cannot reconnect. Please reload the window."**：随机端口在同一个插件实例里只生成一次，重启后 `url` 不变，而前端只凭 url 判断要不要重载 iframe，于是永远停在旧页面。`/state` 新增 `bootAt`（每次真正拉起 code-server 时刷新），前端据此重载 iframe
+
+### 变更（声明宿主版本范围）
+
+- **`package.json` 新增 `engines.dsh: ">=0.1.0-rc.1 <0.3.0-0"`**：此前只有 `engines.node` 和一条 `@deepseek-ai/dsh-client-runtime` 的 peer，而那条 peer 指向的是**客户端包**、宿主安装目录里并不存在，所以 dsh-market 的「宿主要求」一直显示「未声明宿主要求」。现在市场会显示 `DSH >=0.1.0-rc.1 <0.3.0-0`
+- **`engines.dsh` 是独占判定**：一旦声明，dsh 的安装闸门与市场的推导都**不再回看 `peerDependencies`**，所以范围必须自己写全。本范围覆盖 0.1.0-rc.1 到 0.2.x（含 `0.2.1-alpha.1`、`0.2.2-rc.1` 这类预发布）—— 两边用的 `satisfies` 都带 `includePrerelease`，不会误杀预发布宿主
+- **0.0.x 不再声明支持**：README 的前置要求从 `0.0.x – 0.2.x` 收敛为 `0.1.0-rc.1 – 0.2.x`（中英同步）
+
+> 测试：`control-trust-smoke.mjs` 81 → 84 项（新增 3 条桌面代理形状的用例，变异验证过）；`npm test` = **186 项**
+
 ## [0.5.8] - 2026-11-06
 
 ### 修复（桌面窗口里所有写操作 403）

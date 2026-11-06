@@ -54,6 +54,15 @@ check(gate(req({ host: "127.0.0.1:3080", origin: "dsh-app://app" },
   "desktop shell origin from a non-loopback socket rejected");
 check(gate(req({ host: "127.0.0.1:3080", origin: "null" }), true) === false,
   "opaque 'null' origin still rejected (file: / sandboxed iframe)");
+// The desktop shell re-issues page requests natively: Origin is dropped but
+// `Sec-Fetch-Site: none` survives. A web page cannot set that header.
+check(gate(req({ host: "127.0.0.1:3080", "sec-fetch-site": "none" }), true) === true,
+  "desktop proxy shape (no Origin + Sec-Fetch-Site none) may mutate over loopback");
+check(gate(req({ host: "127.0.0.1:3080", "sec-fetch-site": "none" },
+  { remoteAddress: "192.168.1.9", localAddress: "192.168.1.5" }), true) === false,
+  "same shape from a non-loopback socket rejected");
+check(gate(req({ host: "127.0.0.1:3080", "sec-fetch-site": "same-origin" }), true) === false,
+  "no Origin + same-origin Sec-Fetch-Site still rejected (looks like a normal page)");
 check(gate(req({ host: "127.0.0.1:3080", origin: "http://127.0.0.1:9999" }), true) === false,
   "an http origin from another port still rejected");
 check(gate(req({})) === false, "missing Host rejected");
