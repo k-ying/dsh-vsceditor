@@ -2,7 +2,7 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.5.9] - 2026-11-06
 
 ### 修复（桌面窗口里重启报 403 · 重启后编辑器连不上）
 
