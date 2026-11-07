@@ -2,6 +2,25 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复（一键安装 code-server 在 DSH 0.1.3+ 上直接失败）
+
+- **现象**：点「下载并安装 code-server」立刻报 `spawn failed: Cannot read properties of undefined (reading 'includes')`，安装脚本根本没启动，一个字节都没下载
+- **根因**：`startInstall()` 调 `subprocess.spawn` 时漏传 `cwd`。DSH 从 `0.1.3-alpha.2` 起在 subprocess 入口加了严格参数校验（`validateNoNullByte("options.cwd", spec.cwd)`），`undefined.includes("\0")` 当场抛 `TypeError`，插件的 `catch` 把它包成 `spawn failed: ...`。0.1.2 及更早没有这层校验，缺省 `cwd` 会退回 `process.cwd()`，所以 8 月底加进安装向导的这个漏参一直没暴露
+- **同一处漏参还压着两个静默故障**：`runCmd()` 既没 `cwd` 也没 `graceMs`，异常被 `catch` 吞成空字符串 —— 「检测本机 VS Code」「接管已运行的 code-server」从同一个 DSH 版本起就失效，不报错、只是永远检测不到
+- **修法**：新增 `SPAWN_CWD = os.homedir()`（目录必然存在，不必先建），`startInstall` 与 `runCmd` 补齐 `cwd`；`runCmd` 同时补 `graceMs: 3000`（只是 TERM→KILL 宽限，总超时仍由 `ctx.timeout` 控制）。`startServer` 本来就传了 `cwd`，未动
+
+### 测试
+
+- `npm test` = **186 项**（`control-trust-smoke` 84 / `client-slots-sim` 28 / `windows-sim` 53 / `bridge-regressions` 21）
+- 真机核对：把补丁后的参数交给 DSH 同一个底层启动函数，`exitCode=0` 并取回 stdout；改前同样参数必抛 `TypeError`
+
+### 升级须知
+
+- **宿主半改动**：装好后需要重启 dsh 生效（市场热挂载会替换；重启同样有效）
+- `vscode-ext/dsh-bridge` 未改动，扩展版本保持 `0.5.3`（major.minor 仍是 `0.5`）
+
 ## [0.5.9] - 2026-11-06
 
 ### 修复（桌面窗口里重启报 403 · 重启后编辑器连不上）
