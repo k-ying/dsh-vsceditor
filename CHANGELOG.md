@@ -2,7 +2,7 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.5.10] - 2026-11-07
 
 ### 修复（一键安装 code-server 在 DSH 0.1.3+ 上直接失败）
 
